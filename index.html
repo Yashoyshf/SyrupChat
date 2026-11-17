@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>#General — SyrupChat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #000000; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #ca8a04; }
+  </style>
+</head>
+<body class="bg-black text-zinc-100 h-screen flex flex-col overflow-hidden select-none sm:select-auto">
+
+  <!-- Mandatory Google Login Gate -->
+  <div id="login-screen" class="fixed inset-0 z-50 bg-black flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-8 text-center shadow-2xl">
+      <div class="inline-block px-3 py-1 rounded-full bg-yellow-600/20 border border-yellow-600/40 text-yellow-500 text-xs font-semibold tracking-wide mb-4">
+        #GENERAL
+      </div>
+      <h1 class="text-2xl font-bold text-white mb-2">SyrupChat</h1>
+      <p class="text-sm text-zinc-400 mb-6">Sign in with your Google Account to join the chat room.</p>
+
+      <button id="google-login-btn"
+        class="w-full flex items-center justify-center gap-3 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
+        <svg class="w-5 h-5" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 1.76-1.3 3.25-2.77 4.25v3.53h4.48c2.62-2.41 4.13-5.96 4.13-10.15 0-.79-.07-1.56-.18-2.36z"/>
+          <path fill="currentColor" d="M12.18 22c3.74 0 6.88-1.24 9.17-3.36l-4.48-3.53c-1.24.83-2.83 1.32-4.69 1.32-3.61 0-6.67-2.44-7.76-5.71H-.2v3.6C2.08 18.85 6.76 22 12.18 22z"/>
+          <path fill="currentColor" d="M4.42 10.72c-.28-.83-.44-1.72-.44-2.64s.16-1.81.44-2.64V1.84H-.2C-1.14 3.71-1.68 5.83-1.68 8.08s.54 4.37 1.48 6.24l4.62-3.6z"/>
+          <path fill="currentColor" d="M12.18 3.63c2.03 0 3.86.7 5.3 2.07l3.97-3.97C19.05-.51 15.92-1.84 12.18-1.84 6.76-1.84 2.08 1.31-.2 5.84l4.62 3.6c1.09-3.27 4.15-5.81 7.76-5.81z"/>
+        </svg>
+        Sign in with Google
+      </button>
+
+      <p id="auth-error" class="text-xs text-red-400 mt-4 hidden"></p>
+    </div>
+  </div>
+
+  <!-- Drag & Drop Image Overlay -->
+  <div id="drop-overlay" class="fixed inset-0 z-40 bg-black/90 border-2 border-dashed border-yellow-500 hidden items-center justify-center pointer-events-none">
+    <div class="text-center">
+      <p class="text-xl font-bold text-yellow-500">Drop picture to upload</p>
+      <p class="text-sm text-zinc-400 mt-1">Image will be compressed automatically</p>
+    </div>
+  </div>
+
+  <!-- Fullscreen Image Lightbox -->
+  <div id="lightbox" class="fixed inset-0 z-50 bg-black/95 hidden items-center justify-center p-4 cursor-zoom-out">
+    <img id="lightbox-img" src="" alt="Full preview" class="max-w-full max-h-full rounded-xl border border-zinc-800" />
+  </div>
+
+  <!-- Admin Muted Users Modal -->
+  <div id="muted-modal" class="fixed inset-0 z-50 bg-black/80 hidden items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-bold text-yellow-500 uppercase tracking-wider">Muted Users</h2>
+        <button id="close-muted-modal" class="text-zinc-400 hover:text-white text-sm cursor-pointer">✕</button>
+      </div>
+      <div id="muted-list" class="space-y-2 max-h-60 overflow-y-auto text-sm text-zinc-400">
+        No users are currently muted.
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Chat UI -->
+  <div id="chat-app" class="hidden flex-col h-full max-w-4xl w-full mx-auto border-x border-zinc-900">
+
+    <!-- Header: Top-Left #General | Top-Right Editable Name Box -->
+    <header class="px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
+      <!-- Top Left: #General text + online count -->
+      <div class="flex items-center gap-3 shrink-0">
+        <span class="text-yellow-500 font-bold text-lg tracking-tight">#General</span>
+        <div class="flex items-center gap-1.5 text-xs text-zinc-400">
+          <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
+          <span id="online-count">1 online</span>
+        </div>
+        <span id="lock-badge" class="hidden px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-red-400 text-[11px] font-semibold">
+          🔒 Locked
+        </span>
+      </div>
+
+      <!-- Top Right: Silent Admin tools + Editable Display Name Text Box + Sign out -->
+      <div class="flex items-center gap-2 min-w-0">
+        <div id="admin-controls" class="hidden items-center gap-1.5 shrink-0">
+          <button id="toggle-lock-btn"
+            class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-yellow-600/40 transition cursor-pointer">
+            Lock
+          </button>
+          <button id="open-muted-btn"
+            class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition cursor-pointer">
+            Muted (<span id="muted-count">0</span>)
+          </button>
+        </div>
+
+        <input id="display-name-input" type="text" maxlength="32" title="Your display name (click to edit)"
+          placeholder="Your name"
+          class="w-36 sm:w-44 bg-zinc-900 text-yellow-500 font-medium text-sm rounded-xl px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 transition" />
+
+        <button id="logout-btn"
+          class="text-xs px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition cursor-pointer shrink-0">
+          Sign out
+        </button>
+      </div>
+    </header>
+
+    <!-- Messages Feed -->
+    <main id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-4 bg-black">
+      <div class="text-center text-xs text-zinc-600 py-4">Welcome to #General.</div>
+    </main>
+
+    <!-- Image Attachment Preview -->
+    <div id="image-preview-bar" class="hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
+      <div class="relative inline-block">
+        <img id="image-preview-thumb" src="" class="h-20 rounded-xl border border-yellow-600/50 object-cover" />
+        <button id="cancel-image-btn" type="button"
+          class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 hover:text-yellow-500 text-xs font-bold flex items-center justify-center cursor-pointer">
+          ✕
+        </button>
+      </div>
+    </div>
+
+    <!-- Restricted / Muted Banner -->
+    <div id="restricted-banner" class="hidden p-3.5 bg-zinc-950 border-t border-zinc-800 text-center text-xs text-red-400 font-medium">
+      You have been muted by an admin.
+    </div>
+
+    <!-- Message Input Form -->
+    <form id="message-form" class="p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
+      <input type="file" id="image-input" accept="image/*" class="hidden" />
+
+      <button type="button" id="upload-btn" title="Upload picture"
+        class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+      </button>
+
+      <input id="message-input" type="text" autocomplete="off" placeholder="Message #General..."
+        class="flex-1 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
+
+      <button type="submit"
+        class="px-5 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold text-sm transition cursor-pointer">
+        Send
+      </button>
+    </form>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import {
+      getAuth,
+      GoogleAuthProvider,
+      signInWithPopup,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      deleteDoc,
+      doc,
+      setDoc,
+      onSnapshot,
+      query,
+      orderBy,
+      limit,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    // Configured Admin Accounts
+    const ADMIN_EMAILS = [
+      "11530584@stu.tshs.tp.edu.tw",
+      "yashoysh@gmail.com"
+    ];
+
+    // Configured SyrupChat Firebase Project
+    const firebaseConfig = {
+      apiKey: "AIzaSyDZjXfsFUKEmmMFmu0sNNoxfHGJmWf2wQU",
+      authDomain: "syrupchat-40458.firebaseapp.com",
+      projectId: "syrupchat-40458",
+      storageBucket: "syrupchat-40458.firebasestorage.app",
+      messagingSenderId: "43468600472",
+      appId: "1:43468600472:web:5fca69610692a3dd320ced",
+      measurementId: "G-8TM6SE8MGY"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+
+    // DOM Elements
+    const loginScreen = document.getElementById("login-screen");
+    const chatApp = document.getElementById("chat-app");
+    const googleLoginBtn = document.getElementById("google-login-btn");
+    const logoutBtn = document.getElementById("logout-btn");
+    const authError = document.getElementById("auth-error");
+    const displayNameInput = document.getElementById("display-name-input");
+    const messagesContainer = document.getElementById("messages-container");
+    const messageForm = document.getElementById("message-form");
+    const restrictedBanner = document.getElementById("restricted-banner");
+    const messageInput = document.getElementById("message-input");
+    const imageInput = document.getElementById("image-input");
+    const uploadBtn = document.getElementById("upload-btn");
+    const imagePreviewBar = document.getElementById("image-preview-bar");
+    const imagePreviewThumb = document.getElementById("image-preview-thumb");
+    const cancelImageBtn = document.getElementById("cancel-image-btn");
+    const dropOverlay = document.getElementById("drop-overlay");
+    const lightbox = document.getElementById("lightbox");
+    const lightboxImg = document.getElementById("lightbox-img");
+    const onlineCountEl = document.getElementById("online-count");
+
+    // Admin DOM Elements
+    const adminControls = document.getElementById("admin-controls");
+    const toggleLockBtn = document.getElementById("toggle-lock-btn");
+    const lockBadge = document.getElementById("lock-badge");
+    const openMutedBtn = document.getElementById("open-muted-btn");
+    const mutedCountEl = document.getElementById("muted-count");
+    const mutedModal = document.getElementById("muted-modal");
+    const closeMutedModal = document.getElementById("close-muted-modal");
+    const mutedListEl = document.getElementById("muted-list");
+
+    let currentUser = null;
+    let isAdmin = false;
+    let isRoomLocked = false;
+    let mutedUsersMap = {};
+    let pendingImageBase64 = null;
+    let unsubscribers = [];
+    let heartbeatInterval = null;
+
+    function getActiveDisplayName() {
+      const val = displayNameInput.value.trim();
+      if (val) return val;
+      if (!currentUser) return "Guest";
+      return currentUser.displayName || currentUser.email.split("@")[0];
+    }
+
+    displayNameInput.addEventListener("change", () => {
+      if (!currentUser) return;
+      const fallback = currentUser.displayName || currentUser.email.split("@")[0];
+      const cleanName = displayNameInput.value.trim() || fallback;
+      displayNameInput.value = cleanName;
+      localStorage.setItem(`chat_name_${currentUser.uid}`, cleanName);
+      setDoc(doc(db, "presence", currentUser.uid), { name: cleanName, lastSeen: Date.now() }, { merge: true });
+    });
+
+    displayNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        displayNameInput.blur();
+      }
+    });
+
+    googleLoginBtn.addEventListener("click", async () => {
+      authError.classList.add("hidden");
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (err) {
+        authError.textContent = err.message;
+        authError.classList.remove("hidden");
+      }
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      if (currentUser) {
+        await deleteDoc(doc(db, "presence", currentUser.uid)).catch(() => {});
+      }
+      await signOut(auth);
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      unsubscribers.forEach((fn) => fn());
+      unsubscribers = [];
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+
+      if (user) {
+        currentUser = user;
+        isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
+
+        const googleName = user.displayName || user.email.split("@")[0];
+        const savedName = localStorage.getItem(`chat_name_${user.uid}`);
+        displayNameInput.value = savedName || googleName;
+
+        if (isAdmin) {
+          adminControls.classList.remove("hidden");
+          adminControls.classList.add("flex");
+        } else {
+          adminControls.classList.add("hidden");
+          adminControls.classList.remove("flex");
+        }
+
+        loginScreen.classList.add("hidden");
+        chatApp.classList.remove("hidden");
+        chatApp.classList.add("flex");
+
+        startModerationListeners();
+        startChatListener();
+        startPresence(user.uid);
+      } else {
+        currentUser = null;
+        isAdmin = false;
+        loginScreen.classList.remove("hidden");
+        chatApp.classList.add("hidden");
+        chatApp.classList.remove("flex");
+      }
+    });
+
+    function updateInputAccess() {
+      if (!currentUser) return;
+      const amIMuted = Boolean(mutedUsersMap[currentUser.uid]);
+
+      if (!isAdmin && amIMuted) {
+        messageForm.classList.add("hidden");
+        restrictedBanner.textContent = "You have been muted by an admin.";
+        restrictedBanner.classList.remove("hidden");
+      } else if (!isAdmin && isRoomLocked) {
+        messageForm.classList.add("hidden");
+        restrictedBanner.textContent = "Chat is currently locked.";
+        restrictedBanner.classList.remove("hidden");
+      } else {
+        restrictedBanner.classList.add("hidden");
+        messageForm.classList.remove("hidden");
+      }
+    }
+
+    function startModerationListeners() {
+      const unsubMuted = onSnapshot(collection(db, "mutedUsers"), (snap) => {
+        mutedUsersMap = {};
+        snap.forEach((d) => {
+          mutedUsersMap[d.id] = d.data();
+        });
+        mutedCountEl.textContent = Object.keys(mutedUsersMap).length;
+        renderMutedModalList();
+        updateInputAccess();
+      });
+
+      const unsubSettings = onSnapshot(doc(db, "settings", "general"), (docSnap) => {
+        isRoomLocked = docSnap.exists() ? Boolean(docSnap.data().locked) : false;
+        if (isRoomLocked) {
+          lockBadge.classList.remove("hidden");
+          toggleLockBtn.textContent = "Unlock";
+        } else {
+          lockBadge.classList.add("hidden");
+          toggleLockBtn.textContent = "Lock";
+        }
+        updateInputAccess();
+      });
+
+      unsubscribers.push(unsubMuted, unsubSettings);
+    }
+
+    toggleLockBtn.addEventListener("click", async () => {
+      if (!isAdmin) return;
+      await setDoc(doc(db, "settings", "general"), { locked: !isRoomLocked }, { merge: true });
+    });
+
+    openMutedBtn.addEventListener("click", () => {
+      mutedModal.classList.remove("hidden");
+      mutedModal.classList.add("flex");
+    });
+
+    closeMutedModal.addEventListener("click", () => {
+      mutedModal.classList.add("hidden");
+      mutedModal.classList.remove("flex");
+    });
+
+    function renderMutedModalList() {
+      const entries = Object.entries(mutedUsersMap);
+      if (entries.length === 0) {
+        mutedListEl.innerHTML = `<p class="text-xs text-zinc-500">No users are currently muted.</p>`;
+        return;
+      }
+      mutedListEl.innerHTML = "";
+      entries.forEach(([uid, info]) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between bg-zinc-900 px-3 py-2 rounded-xl border border-zinc-800";
+        row.innerHTML = `
+          <div class="truncate pr-2">
+            <div class="text-xs font-semibold text-zinc-200 truncate">${escapeHTML(info.name || "Unknown")}</div>
+            <div class="text-[11px] text-zinc-500 truncate">${escapeHTML(info.email || uid)}</div>
+          </div>
+        `;
+        const unmuteBtn = document.createElement("button");
+        unmuteBtn.textContent = "Unmute";
+        unmuteBtn.className = "text-xs px-2.5 py-1 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-black font-semibold cursor-pointer";
+        unmuteBtn.onclick = () => deleteDoc(doc(db, "mutedUsers", uid));
+        row.appendChild(unmuteBtn);
+        mutedListEl.appendChild(row);
+      });
+    }
+
+    function startPresence(uid) {
+      const userRef = doc(db, "presence", uid);
+      const ping = () => setDoc(userRef, { name: getActiveDisplayName(), lastSeen: Date.now() }, { merge: true });
+      ping();
+      heartbeatInterval = setInterval(ping, 25000);
+
+      const unsubPres = onSnapshot(collection(db, "presence"), (snap) => {
+        const now = Date.now();
+        const active = snap.docs.filter((d) => now - (d.data().lastSeen || 0) < 60000);
+        onlineCountEl.textContent = `${Math.max(1, active.length)} online`;
+      });
+      unsubscribers.push(unsubPres);
+    }
+
+    function startChatListener() {
+      const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(150));
+      const unsubMsgs = onSnapshot(q, (snapshot) => {
+        messagesContainer.innerHTML = "";
+        snapshot.forEach((docSnap) => {
+          renderMessage(docSnap.id, docSnap.data());
+        });
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      });
+      unsubscribers.push(unsubMsgs);
+    }
+
+    function renderMessage(id, msg) {
+      const isMe = currentUser && msg.uid === currentUser.uid;
+      const isMsgFromAdmin = ADMIN_EMAILS.includes((msg.email || "").toLowerCase());
+      const isUserMuted = Boolean(mutedUsersMap[msg.uid]);
+
+      const wrapper = document.createElement("div");
+      wrapper.className = `flex flex-col ${isMe ? "items-end" : "items-start"}`;
+
+      const timeStr = msg.createdAt?.toDate
+        ? msg.createdAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "Sending...";
+
+      const meta = document.createElement("div");
+      meta.className = "flex items-center gap-2 mb-1 px-1";
+      meta.innerHTML = `
+        <span class="text-xs font-semibold ${isMe ? "text-yellow-500" : "text-zinc-300"}">${escapeHTML(msg.name)}</span>
+        <span class="text-[11px] text-zinc-500">${timeStr}</span>
+      `;
+
+      if (isAdmin && !isMe && !isMsgFromAdmin) {
+        const muteBtn = document.createElement("button");
+        muteBtn.textContent = isUserMuted ? "Unmute" : "Mute";
+        muteBtn.className = `text-[11px] transition cursor-pointer ${
+          isUserMuted ? "text-yellow-500 hover:text-yellow-400 font-semibold" : "text-zinc-500 hover:text-yellow-500"
+        }`;
+        muteBtn.onclick = async () => {
+          if (mutedUsersMap[msg.uid]) {
+            await deleteDoc(doc(db, "mutedUsers", msg.uid));
+          } else {
+            await setDoc(doc(db, "mutedUsers", msg.uid), {
+              name: msg.name,
+              email: msg.email || "",
+              mutedAt: serverTimestamp()
+            });
+          }
+        };
+        meta.appendChild(muteBtn);
+      }
+
+      if (isMe || isAdmin) {
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete";
+        delBtn.className = "text-[11px] text-zinc-600 hover:text-red-400 transition cursor-pointer";
+        delBtn.onclick = () => deleteDoc(doc(db, "messages", id));
+        meta.appendChild(delBtn);
+      }
+
+      const bubble = document.createElement("div");
+      bubble.className = `max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words ${
+        isMe
+          ? "bg-yellow-600 text-black font-medium"
+          : "bg-zinc-900 text-zinc-100 border border-zinc-800"
+      }`;
+
+      if (msg.image) {
+        const img = document.createElement("img");
+        img.src = msg.image;
+        img.className = "max-h-64 rounded-lg mb-1.5 cursor-zoom-in border border-black/20";
+        img.onclick = () => {
+          lightboxImg.src = msg.image;
+          lightbox.classList.remove("hidden");
+          lightbox.classList.add("flex");
+        };
+        bubble.appendChild(img);
+      }
+
+      if (msg.text) {
+        const p = document.createElement("p");
+        p.className = "whitespace-pre-wrap";
+        p.textContent = msg.text;
+        bubble.appendChild(p);
+      }
+
+      wrapper.appendChild(meta);
+      wrapper.appendChild(bubble);
+      messagesContainer.appendChild(wrapper);
+    }
+
+    messageForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!currentUser) return;
+      if (!isAdmin && (mutedUsersMap[currentUser.uid] || isRoomLocked)) return;
+
+      const text = messageInput.value.trim();
+      if (!text && !pendingImageBase64) return;
+
+      const payload = {
+        uid: currentUser.uid,
+        email: currentUser.email || "",
+        name: getActiveDisplayName(),
+        text,
+        image: pendingImageBase64 || null,
+        createdAt: serverTimestamp()
+      };
+
+      messageInput.value = "";
+      clearPendingImage();
+      await addDoc(collection(db, "messages"), payload);
+    });
+
+    function processImageFile(file) {
+      if (!file || !file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 900;
+          const scale = Math.min(1, MAX_WIDTH / img.width);
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          pendingImageBase64 = canvas.toDataURL("image/jpeg", 0.75);
+          imagePreviewThumb.src = pendingImageBase64;
+          imagePreviewBar.classList.remove("hidden");
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearPendingImage() {
+      pendingImageBase64 = null;
+      imageInput.value = "";
+      imagePreviewThumb.src = "";
+      imagePreviewBar.classList.add("hidden");
+    }
+
+    uploadBtn.addEventListener("click", () => imageInput.click());
+    imageInput.addEventListener("change", (e) => processImageFile(e.target.files[0]));
+    cancelImageBtn.addEventListener("click", clearPendingImage);
+
+    window.addEventListener("paste", (e) => {
+      const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+      if (item) processImageFile(item.getAsFile());
+    });
+
+    window.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (currentUser) {
+        dropOverlay.classList.remove("hidden");
+        dropOverlay.classList.add("flex");
+      }
+    });
+
+    window.addEventListener("dragleave", (e) => {
+      if (e.relatedTarget === null) {
+        dropOverlay.classList.add("hidden");
+        dropOverlay.classList.remove("flex");
+      }
+    });
+
+    window.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add("hidden");
+      dropOverlay.classList.remove("flex");
+      if (currentUser && e.dataTransfer.files[0]) processImageFile(e.dataTransfer.files[0]);
+    });
+
+    lightbox.addEventListener("click", () => {
+      lightbox.classList.add("hidden");
+      lightbox.classList.remove("flex");
+    });
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    }
+  </script>
+</body>
+</html>
