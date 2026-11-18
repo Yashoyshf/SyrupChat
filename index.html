@@ -141,6 +141,12 @@
     <!-- Inline Autocomplete Popover (Triggered by :shortcode or @mention) -->
     <div id="autocomplete-popup" class="shrink-0 hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
 
+    <!-- Whisper / Command Status Notice -->
+    <div id="command-feedback" class="shrink-0 hidden px-4 py-1.5 bg-purple-950/60 border-t border-purple-800/60 text-xs text-purple-300 flex items-center justify-between">
+      <span id="command-feedback-text"></span>
+      <button type="button" id="close-command-feedback" class="text-purple-400 hover:text-white ml-2 cursor-pointer">✕</button>
+    </div>
+
     <!-- Image Attachment Preview -->
     <div id="image-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
       <div class="relative inline-block">
@@ -180,7 +186,7 @@
         </svg>
       </button>
 
-      <input id="message-input" type="text" autocomplete="off" placeholder="Message #General... (type : for emoji, @ to mention)"
+      <input id="message-input" type="text" autocomplete="off" placeholder="Message #General... (: emoji, @ mention, /msg @user whisper)"
         class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
 
       <button type="submit"
@@ -325,6 +331,9 @@
     const lightbox = document.getElementById("lightbox");
     const lightboxImg = document.getElementById("lightbox-img");
     const onlineCountEl = document.getElementById("online-count");
+    const commandFeedback = document.getElementById("command-feedback");
+    const commandFeedbackText = document.getElementById("command-feedback-text");
+    const closeCommandFeedback = document.getElementById("close-command-feedback");
 
     // Emoji & Mention Elements
     const emojiToggleBtn = document.getElementById("emoji-toggle-btn");
@@ -351,6 +360,7 @@
     let pendingImageBase64 = null;
     let unsubscribers = [];
     let heartbeatInterval = null;
+    let latestMessagesSnapshot = null;
 
     // Known users for @mentions & live avatars { uid: { name, avatar, online } }
     let knownUsers = {};
@@ -358,6 +368,18 @@
     let acItems = [];
     let acSelectedIndex = 0;
     let acTriggerRange = null;
+
+    function showCommandNotice(msg) {
+      commandFeedbackText.textContent = msg;
+      commandFeedback.classList.remove("hidden");
+      setTimeout(() => {
+        commandFeedback.classList.add("hidden");
+      }, 4500);
+    }
+
+    closeCommandFeedback.addEventListener("click", () => {
+      commandFeedback.classList.add("hidden");
+    });
 
     function getActiveDisplayName() {
       const val = displayNameInput.value.trim().slice(0, 50);
@@ -395,7 +417,6 @@
           canvas.height = SIZE;
           const ctx = canvas.getContext("2d");
 
-          // Center crop to square
           const minSide = Math.min(img.width, img.height);
           const sx = (img.width - minSide) / 2;
           const sy = (img.height - minSide) / 2;
@@ -430,6 +451,7 @@
         { name: cleanName, avatar: currentAvatarUrl, lastSeen: Date.now() },
         { merge: true }
       );
+      if (latestMessagesSnapshot) renderAllMessages(latestMessagesSnapshot);
     });
 
     displayNameInput.addEventListener("keydown", (e) => {
@@ -628,7 +650,7 @@
         }
       }
 
-      // 2. Check for "@name" mention
+      // 2. Check for "@name" mention (works anywhere including after "/msg ")
       const mentionMatch = textBeforeCursor.match(/(?:^|\s)(@[^\s@]*)$/);
       if (mentionMatch) {
         const token = mentionMatch[1];
@@ -831,33 +853,61 @@
     function startChatListener() {
       const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(150));
       const unsubMsgs = onSnapshot(q, (snapshot) => {
-        messagesContainer.innerHTML = "";
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.uid && data.name && !knownUsers[data.uid]) {
-            knownUsers[data.uid] = {
-              name: data.name,
-              avatar: data.avatar || "",
-              online: false
-            };
-          }
-          renderMessage(docSnap.id, data);
-        });
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        latestMessagesSnapshot = snapshot;
+        renderAllMessages(snapshot);
       });
       unsubscribers.push(unsubMsgs);
     }
 
-    function formatMessageHTML(rawText, isMe) {
+    function renderAllMessages(snapshot) {
+      messagesContainer.innerHTML = "";
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.uid && data.name && !knownUsers[data.uid]) {
+          knownUsers[data.uid] = {
+            name: data.name,
+            avatar: data.avatar || "",
+            online: false
+          };
+        }
+
+        // Whisper visibility filter: only sender and recipient can view whispers
+        if (data.isWhisper) {
+          if (!currentUser) return;
+          const myUid = currentUser.uid;
+          const myNameLower = getActiveDisplayName().toLowerCase();
+          const isSender = data.uid === myUid;
+          const isRecipientByUid = data.whisperToUid && data.whisperToUid === myUid;
+          const isRecipientByName =
+            data.whisperToName && data.whisperToName.toLowerCase() === myNameLower;
+
+          if (!isSender && !isRecipientByUid && !isRecipientByName) {
+            return; // Hide whisper from everyone else
+          }
+        }
+
+        renderMessage(docSnap.id, data);
+      });
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // Format @mentions by changing text color only (no background highlight):
+    // - Self messages (yellow bubble): black text -> white (@mention)
+    // - Others' messages (dark bubble): white text -> dark yellow (@mention)
+    // - Whisper messages (purple bubble): light purple -> bright purple/white
+    function formatMessageHTML(rawText, isMe, isWhisper = false) {
       const escaped = escapeHTML(rawText);
-      const pillClass = isMe
-        ? "bg-black/20 text-black font-bold px-1.5 py-0.5 rounded"
-        : "bg-yellow-600/20 text-yellow-400 font-semibold px-1.5 py-0.5 rounded";
-      return escaped.replace(/(^|\s)(@[^\s@]+)/g, `$1<span class="${pillClass}">$2</span>`);
+      const colorClass = isWhisper
+        ? "text-purple-300 font-bold"
+        : isMe
+        ? "text-white font-bold"
+        : "text-yellow-500 font-semibold";
+      return escaped.replace(/(^|\s)(@[^\s@]+)/g, `$1<span class="${colorClass}">$2</span>`);
     }
 
     function renderMessage(id, msg) {
       const isMe = currentUser && msg.uid === currentUser.uid;
+      const isWhisper = Boolean(msg.isWhisper);
       const isMsgFromAdmin = ADMIN_EMAILS.includes((msg.email || "").toLowerCase());
       const isUserMuted = Boolean(mutedUsersMap[msg.uid]);
       const myName = getActiveDisplayName().toLowerCase();
@@ -891,10 +941,10 @@
 
       const nameBtn = document.createElement("button");
       nameBtn.type = "button";
-      nameBtn.title = `Mention @${msg.name}`;
+      nameBtn.title = `Click to whisper or mention @${msg.name}`;
       nameBtn.textContent = msg.name;
       nameBtn.className = `text-xs font-semibold hover:underline cursor-pointer ${
-        isMe ? "text-yellow-500" : "text-zinc-300"
+        isWhisper ? "text-purple-400" : isMe ? "text-yellow-500" : "text-zinc-300"
       }`;
       nameBtn.onclick = () => {
         insertAtCursor(`@${msg.name} `);
@@ -935,14 +985,31 @@
         meta.appendChild(delBtn);
       }
 
+      // Bubble Styling: Purple for Whispers, Yellow for Self, Dark for Others
       const bubble = document.createElement("div");
-      bubble.className = `max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words ${
-        isMe
-          ? "bg-yellow-600 text-black font-medium"
-          : mentionsMe
-          ? "bg-zinc-900 text-zinc-100 border border-yellow-500/70 shadow-[0_0_12px_rgba(234,179,8,0.12)]"
-          : "bg-zinc-900 text-zinc-100 border border-zinc-800"
-      }`;
+      if (isWhisper) {
+        bubble.className =
+          "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-purple-950/90 text-purple-100 border border-purple-500/70 shadow-[0_0_15px_rgba(168,85,247,0.18)]";
+      } else if (isMe) {
+        bubble.className =
+          "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-yellow-600 text-black font-medium";
+      } else if (mentionsMe) {
+        bubble.className =
+          "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-zinc-900 text-zinc-100 border border-yellow-500/70 shadow-[0_0_12px_rgba(234,179,8,0.12)]";
+      } else {
+        bubble.className =
+          "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-zinc-900 text-zinc-100 border border-zinc-800";
+      }
+
+      // Whisper Header Tag inside the Purple Bubble
+      if (isWhisper) {
+        const whisperTag = document.createElement("div");
+        whisperTag.className = "text-[11px] font-semibold text-purple-300 mb-1 flex items-center gap-1";
+        whisperTag.textContent = isMe
+          ? `🔒 Whispered to @${msg.whisperToName}`
+          : `🔒 Whisper from @${msg.name}`;
+        bubble.appendChild(whisperTag);
+      }
 
       if (msg.image) {
         const img = document.createElement("img");
@@ -959,7 +1026,7 @@
       if (msg.text) {
         const p = document.createElement("p");
         p.className = "whitespace-pre-wrap";
-        p.innerHTML = formatMessageHTML(msg.text, isMe);
+        p.innerHTML = formatMessageHTML(msg.text, isMe, isWhisper);
         bubble.appendChild(p);
       }
 
@@ -968,20 +1035,99 @@
       messagesContainer.appendChild(wrapper);
     }
 
+    // Parse "/msg @target [message]" (supports multi-word known user names too)
+    function parseWhisperCommand(rawText) {
+      if (!rawText.toLowerCase().startsWith("/msg ")) return null;
+      const rest = rawText.slice(5).trim();
+      if (!rest.startsWith("@")) {
+        return { error: "Usage: /msg @username your secret message" };
+      }
+
+      const afterAt = rest.slice(1);
+      // Sort known users longest-name-first so multi-word names match accurately
+      const candidates = Object.entries(knownUsers)
+        .filter(([, u]) => u.name)
+        .sort((a, b) => b[1].name.length - a[1].name.length);
+
+      for (const [uid, u] of candidates) {
+        const lowerName = u.name.toLowerCase();
+        if (
+          afterAt.toLowerCase().startsWith(lowerName + " ") ||
+          afterAt.toLowerCase() === lowerName
+        ) {
+          const whisperBody = afterAt.slice(u.name.length).trim();
+          return {
+            targetUid: uid,
+            targetName: u.name,
+            whisperText: whisperBody
+          };
+        }
+      }
+
+      // Fallback: single-word @username if not in recent cache
+      const spaceIdx = afterAt.indexOf(" ");
+      if (spaceIdx === -1) {
+        return {
+          targetUid: null,
+          targetName: afterAt,
+          whisperText: ""
+        };
+      }
+      return {
+        targetUid: null,
+        targetName: afterAt.slice(0, spaceIdx),
+        whisperText: afterAt.slice(spaceIdx + 1).trim()
+      };
+    }
+
     messageForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!currentUser) return;
       if (!isAdmin && (mutedUsersMap[currentUser.uid] || isRoomLocked)) return;
 
-      const text = messageInput.value.trim();
-      if (!text && !pendingImageBase64) return;
+      const rawText = messageInput.value.trim();
+      if (!rawText && !pendingImageBase64) return;
 
+      // Check for "/msg @user text" whisper command
+      const whisper = parseWhisperCommand(rawText);
+      if (whisper) {
+        if (whisper.error) {
+          showCommandNotice(whisper.error);
+          return;
+        }
+        if (!whisper.whisperText && !pendingImageBase64) {
+          showCommandNotice(`Type a message after @${whisper.targetName} to send a whisper.`);
+          return;
+        }
+
+        const payload = {
+          uid: currentUser.uid,
+          email: currentUser.email || "",
+          name: getActiveDisplayName(),
+          avatar: currentAvatarUrl || null,
+          text: whisper.whisperText,
+          image: pendingImageBase64 || null,
+          isWhisper: true,
+          whisperToUid: whisper.targetUid || null,
+          whisperToName: whisper.targetName,
+          createdAt: serverTimestamp()
+        };
+
+        messageInput.value = "";
+        emojiDrawer.classList.add("hidden");
+        hideAutocomplete();
+        clearPendingImage();
+        await addDoc(collection(db, "messages"), payload);
+        return;
+      }
+
+      // Standard public message
       const payload = {
         uid: currentUser.uid,
         email: currentUser.email || "",
         name: getActiveDisplayName(),
         avatar: currentAvatarUrl || null,
-        text,
+        text: rawText,
         image: pendingImageBase64 || null,
         createdAt: serverTimestamp()
       };
