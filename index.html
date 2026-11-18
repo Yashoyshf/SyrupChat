@@ -14,6 +14,8 @@
     ::-webkit-scrollbar-thumb:hover { background: #ca8a04; }
   </style>
 </head>
+<body class="bg-black text-zinc-100 h-dvh flex flex-col overflow-hidden select-none sm:select-auto">
+
   <!-- Mandatory Google Login Gate -->
   <div id="login-screen" class="fixed inset-0 z-50 bg-black flex items-center justify-center p-4">
     <div class="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-8 text-center shadow-2xl">
@@ -65,10 +67,10 @@
   </div>
 
   <!-- Main Chat UI -->
-  <div id="chat-app" class="hidden flex-col h-full max-w-4xl w-full mx-auto border-x border-zinc-900 relative">
+  <div id="chat-app" class="hidden flex-col h-full min-h-0 max-w-4xl w-full mx-auto border-x border-zinc-900 relative overflow-hidden">
 
     <!-- Header: Top-Left #General | Top-Right Profile Picture + Editable Name Box -->
-    <header class="px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
+    <header class="shrink-0 px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
       <!-- Top Left: #General text + online count -->
       <div class="flex items-center gap-3 shrink-0">
         <span class="text-yellow-500 font-bold text-lg tracking-tight">#General</span>
@@ -123,12 +125,12 @@
     </header>
 
     <!-- Messages Feed -->
-    <main id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-4 bg-black">
+    <main id="messages-container" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-black">
       <div class="text-center text-xs text-zinc-600 py-4">Welcome to #General.</div>
     </main>
 
     <!-- Emoji Picker Drawer (Triggered by Emoji Button) -->
-    <div id="emoji-drawer" class="hidden mx-3 mb-2 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl">
+    <div id="emoji-drawer" class="shrink-0 hidden mx-3 mb-2 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl">
       <div class="flex items-center justify-between mb-2">
         <input id="emoji-drawer-search" type="text" placeholder="Search emoji (e.g. smile, fire, gg)..."
           class="w-full bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-xs rounded-lg px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
@@ -137,10 +139,10 @@
     </div>
 
     <!-- Inline Autocomplete Popover (Triggered by :shortcode or @mention) -->
-    <div id="autocomplete-popup" class="hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
+    <div id="autocomplete-popup" class="shrink-0 hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
 
     <!-- Image Attachment Preview -->
-    <div id="image-preview-bar" class="hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
+    <div id="image-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
       <div class="relative inline-block">
         <img id="image-preview-thumb" src="" class="h-20 rounded-xl border border-yellow-600/50 object-cover" />
         <button id="cancel-image-btn" type="button"
@@ -151,12 +153,12 @@
     </div>
 
     <!-- Restricted / Muted Banner -->
-    <div id="restricted-banner" class="hidden p-3.5 bg-zinc-950 border-t border-zinc-800 text-center text-xs text-red-400 font-medium">
+    <div id="restricted-banner" class="shrink-0 hidden p-3.5 bg-zinc-950 border-t border-zinc-800 text-center text-xs text-red-400 font-medium">
       You have been muted by an admin.
     </div>
 
     <!-- Message Input Form -->
-    <form id="message-form" class="p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
+    <form id="message-form" class="shrink-0 p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
       <input type="file" id="image-input" accept="image/*" class="hidden" />
 
       <button type="button" id="upload-btn" title="Upload picture"
