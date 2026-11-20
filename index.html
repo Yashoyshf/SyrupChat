@@ -40,11 +40,11 @@
     </div>
   </div>
 
-  <!-- Drag & Drop Image Overlay -->
+  <!-- Drag & Drop Upload Overlay -->
   <div id="drop-overlay" class="fixed inset-0 z-40 bg-black/90 border-2 border-dashed border-yellow-500 hidden items-center justify-center pointer-events-none">
     <div class="text-center">
-      <p class="text-xl font-bold text-yellow-500">Drop picture to upload</p>
-      <p class="text-sm text-zinc-400 mt-1">Image will be compressed automatically</p>
+      <p class="text-xl font-bold text-yellow-500">Drop picture, GIF, or file to attach</p>
+      <p class="text-sm text-zinc-400 mt-1">GIF animations & PNG transparency are preserved</p>
     </div>
   </div>
 
@@ -79,7 +79,7 @@
           <span id="online-count">1 online</span>
         </div>
         <span id="lock-badge" class="hidden px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-red-400 text-[11px] font-semibold">
-          🔒 Locked
+          Locked
         </span>
       </div>
 
@@ -141,18 +141,34 @@
     <!-- Inline Autocomplete Popover (Triggered by :shortcode or @mention) -->
     <div id="autocomplete-popup" class="shrink-0 hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
 
-    <!-- Whisper / Command Status Notice -->
+    <!-- Whisper / Command / Upload Status Notice -->
     <div id="command-feedback" class="shrink-0 hidden px-4 py-1.5 bg-purple-950/60 border-t border-purple-800/60 text-xs text-purple-300 flex items-center justify-between">
       <span id="command-feedback-text"></span>
       <button type="button" id="close-command-feedback" class="text-purple-400 hover:text-white ml-2 cursor-pointer">✕</button>
     </div>
 
-    <!-- Image Attachment Preview -->
+    <!-- Image / GIF Attachment Preview -->
     <div id="image-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
       <div class="relative inline-block">
-        <img id="image-preview-thumb" src="" class="h-20 rounded-xl border border-yellow-600/50 object-cover" />
+        <img id="image-preview-thumb" src="" class="h-20 rounded-xl border border-yellow-600/50 object-contain bg-zinc-900" />
         <button id="cancel-image-btn" type="button"
           class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 hover:text-yellow-500 text-xs font-bold flex items-center justify-center cursor-pointer">
+          ✕
+        </button>
+      </div>
+    </div>
+
+    <!-- File Attachment Preview -->
+    <div id="file-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
+      <div class="inline-flex items-center gap-2.5 bg-zinc-900 border border-yellow-600/50 rounded-xl px-3 py-2 text-xs">
+        <svg class="w-4 h-4 text-yellow-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+        <span id="file-preview-name" class="text-zinc-200 font-medium truncate max-w-[220px]"></span>
+        <span id="file-preview-size" class="text-zinc-500"></span>
+        <button id="cancel-file-btn" type="button"
+          class="text-zinc-400 hover:text-yellow-500 font-bold ml-1 cursor-pointer">
           ✕
         </button>
       </div>
@@ -166,8 +182,10 @@
     <!-- Message Input Form -->
     <form id="message-form" class="shrink-0 p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
       <input type="file" id="image-input" accept="image/*" class="hidden" />
+      <input type="file" id="file-input" class="hidden" />
 
-      <button type="button" id="upload-btn" title="Upload picture"
+      <!-- Upload Picture / Animated GIF -->
+      <button type="button" id="upload-btn" title="Upload picture or animated GIF"
         class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -176,6 +194,15 @@
         </svg>
       </button>
 
+      <!-- Upload Any File -->
+      <button type="button" id="file-upload-btn" title="Attach file (max ~700 KB)"
+        class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+        </svg>
+      </button>
+
+      <!-- Emoji Picker -->
       <button type="button" id="emoji-toggle-btn" title="Emoji list (or type :keyword)"
         class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -327,6 +354,12 @@
     const imagePreviewBar = document.getElementById("image-preview-bar");
     const imagePreviewThumb = document.getElementById("image-preview-thumb");
     const cancelImageBtn = document.getElementById("cancel-image-btn");
+    const fileInput = document.getElementById("file-input");
+    const fileUploadBtn = document.getElementById("file-upload-btn");
+    const filePreviewBar = document.getElementById("file-preview-bar");
+    const filePreviewName = document.getElementById("file-preview-name");
+    const filePreviewSize = document.getElementById("file-preview-size");
+    const cancelFileBtn = document.getElementById("cancel-file-btn");
     const dropOverlay = document.getElementById("drop-overlay");
     const lightbox = document.getElementById("lightbox");
     const lightboxImg = document.getElementById("lightbox-img");
@@ -358,6 +391,7 @@
     let isRoomLocked = false;
     let mutedUsersMap = {};
     let pendingImageBase64 = null;
+    let pendingFileAttachment = null; // { name, size, type, data }
     let unsubscribers = [];
     let heartbeatInterval = null;
     let latestMessagesSnapshot = null;
@@ -381,6 +415,13 @@
       commandFeedback.classList.add("hidden");
     });
 
+    function formatFileSize(bytes) {
+      if (!bytes) return "";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
     function getActiveDisplayName() {
       const val = displayNameInput.value.trim().slice(0, 50);
       if (val) return val;
@@ -401,7 +442,7 @@
       }
     }
 
-    // Handle Profile Picture Upload (Center-cropped 128x128 JPEG)
+    // Handle Profile Picture Upload (Center-cropped 128x128)
     avatarUploadBtn.addEventListener("click", () => avatarInput.click());
     avatarInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -422,7 +463,7 @@
           const sy = (img.height - minSide) / 2;
           ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, SIZE, SIZE);
 
-          const base64Avatar = canvas.toDataURL("image/jpeg", 0.8);
+          const base64Avatar = canvas.toDataURL("image/png");
           currentAvatarUrl = base64Avatar;
           localStorage.setItem(`chat_avatar_${currentUser.uid}`, base64Avatar);
           updateHeaderAvatarUI();
@@ -882,7 +923,7 @@
             data.whisperToName && data.whisperToName.toLowerCase() === myNameLower;
 
           if (!isSender && !isRecipientByUid && !isRecipientByName) {
-            return; // Hide whisper from everyone else
+            return;
           }
         }
 
@@ -891,10 +932,7 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // Format @mentions by changing text color only (no background highlight):
-    // - Self messages (yellow bubble): black text -> white (@mention)
-    // - Others' messages (dark bubble): white text -> dark yellow (@mention)
-    // - Whisper messages (purple bubble): light purple -> bright purple/white
+    // Format @mentions by changing text color only (no background highlight)
     function formatMessageHTML(rawText, isMe, isWhisper = false) {
       const escaped = escapeHTML(rawText);
       const colorClass = isWhisper
@@ -1001,26 +1039,51 @@
           "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-zinc-900 text-zinc-100 border border-zinc-800";
       }
 
-      // Whisper Header Tag inside the Purple Bubble
+      // Whisper Header Tag inside the Purple Bubble (No lock emoji)
       if (isWhisper) {
         const whisperTag = document.createElement("div");
-        whisperTag.className = "text-[11px] font-semibold text-purple-300 mb-1 flex items-center gap-1";
+        whisperTag.className = "text-[11px] font-semibold text-purple-300 mb-1";
         whisperTag.textContent = isMe
-          ? `🔒 Whispered to @${msg.whisperToName}`
-          : `🔒 Whisper from @${msg.name}`;
+          ? `Whispered to @${msg.whisperToName}`
+          : `Whisper from @${msg.name}`;
         bubble.appendChild(whisperTag);
       }
 
+      // Image / Animated GIF / Transparent PNG display
       if (msg.image) {
         const img = document.createElement("img");
         img.src = msg.image;
-        img.className = "max-h-64 rounded-lg mb-1.5 cursor-zoom-in border border-black/20";
+        img.alt = "Uploaded image";
+        img.className = "max-h-72 max-w-full rounded-lg mb-1.5 cursor-zoom-in border border-black/20 object-contain";
         img.onclick = () => {
           lightboxImg.src = msg.image;
           lightbox.classList.remove("hidden");
           lightbox.classList.add("flex");
         };
         bubble.appendChild(img);
+      }
+
+      // Downloadable File Attachment Card
+      if (msg.file && msg.file.data) {
+        const fileLink = document.createElement("a");
+        fileLink.href = msg.file.data;
+        fileLink.download = msg.file.name || "attachment";
+        fileLink.className = `flex items-center gap-2.5 px-3 py-2 rounded-lg mb-1.5 border transition ${
+          isMe && !isWhisper
+            ? "bg-black/15 border-black/25 text-black hover:bg-black/25"
+            : "bg-zinc-950/80 border-zinc-700 text-zinc-100 hover:border-yellow-500"
+        }`;
+        fileLink.innerHTML = `
+          <svg class="w-4 h-4 shrink-0 ${isMe && !isWhisper ? "text-black" : "text-yellow-500"}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold truncate">${escapeHTML(msg.file.name || "File")}</div>
+            <div class="text-[10px] opacity-75">${escapeHTML(formatFileSize(msg.file.size))} · Click to download</div>
+          </div>
+        `;
+        bubble.appendChild(fileLink);
       }
 
       if (msg.text) {
@@ -1035,7 +1098,7 @@
       messagesContainer.appendChild(wrapper);
     }
 
-    // Parse "/msg @target [message]" (supports multi-word known user names too)
+    // Parse "/msg @target [message]"
     function parseWhisperCommand(rawText) {
       if (!rawText.toLowerCase().startsWith("/msg ")) return null;
       const rest = rawText.slice(5).trim();
@@ -1044,7 +1107,6 @@
       }
 
       const afterAt = rest.slice(1);
-      // Sort known users longest-name-first so multi-word names match accurately
       const candidates = Object.entries(knownUsers)
         .filter(([, u]) => u.name)
         .sort((a, b) => b[1].name.length - a[1].name.length);
@@ -1064,7 +1126,6 @@
         }
       }
 
-      // Fallback: single-word @username if not in recent cache
       const spaceIdx = afterAt.indexOf(" ");
       if (spaceIdx === -1) {
         return {
@@ -1086,7 +1147,7 @@
       if (!isAdmin && (mutedUsersMap[currentUser.uid] || isRoomLocked)) return;
 
       const rawText = messageInput.value.trim();
-      if (!rawText && !pendingImageBase64) return;
+      if (!rawText && !pendingImageBase64 && !pendingFileAttachment) return;
 
       // Check for "/msg @user text" whisper command
       const whisper = parseWhisperCommand(rawText);
@@ -1095,7 +1156,7 @@
           showCommandNotice(whisper.error);
           return;
         }
-        if (!whisper.whisperText && !pendingImageBase64) {
+        if (!whisper.whisperText && !pendingImageBase64 && !pendingFileAttachment) {
           showCommandNotice(`Type a message after @${whisper.targetName} to send a whisper.`);
           return;
         }
@@ -1107,6 +1168,7 @@
           avatar: currentAvatarUrl || null,
           text: whisper.whisperText,
           image: pendingImageBase64 || null,
+          file: pendingFileAttachment || null,
           isWhisper: true,
           whisperToUid: whisper.targetUid || null,
           whisperToName: whisper.targetName,
@@ -1117,6 +1179,7 @@
         emojiDrawer.classList.add("hidden");
         hideAutocomplete();
         clearPendingImage();
+        clearPendingFile();
         await addDoc(collection(db, "messages"), payload);
         return;
       }
@@ -1129,6 +1192,7 @@
         avatar: currentAvatarUrl || null,
         text: rawText,
         image: pendingImageBase64 || null,
+        file: pendingFileAttachment || null,
         createdAt: serverTimestamp()
       };
 
@@ -1136,11 +1200,34 @@
       emojiDrawer.classList.add("hidden");
       hideAutocomplete();
       clearPendingImage();
+      clearPendingFile();
       await addDoc(collection(db, "messages"), payload);
     });
 
+    // =========================================================
+    // IMAGE (GIF, PNG, JPG, WEBP) & GENERAL FILE UPLOAD HANDLERS
+    // =========================================================
     function processImageFile(file) {
       if (!file || !file.type.startsWith("image/")) return;
+
+      // 1. Preserve animated GIFs directly without canvas re-encoding
+      if (file.type === "image/gif") {
+        if (file.size > 750 * 1024) {
+          showCommandNotice("Animated GIF is too large (max ~750 KB for chat storage).");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          pendingImageBase64 = event.target.result;
+          imagePreviewThumb.src = pendingImageBase64;
+          imagePreviewBar.classList.remove("hidden");
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // 2. Preserve transparency for PNG/WebP, compress JPEGs smoothly
+      const isTransparentType = file.type === "image/png" || file.type === "image/webp";
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
@@ -1148,14 +1235,47 @@
           const canvas = document.createElement("canvas");
           const MAX_WIDTH = 900;
           const scale = Math.min(1, MAX_WIDTH / img.width);
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-          pendingImageBase64 = canvas.toDataURL("image/jpeg", 0.75);
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext("2d");
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          let dataUrl = isTransparentType
+            ? canvas.toDataURL("image/png")
+            : canvas.toDataURL("image/jpeg", 0.78);
+
+          // Fallback to WebP if PNG exceeds Firestore's ~750 KB safe limit
+          if (dataUrl.length > 900000 && isTransparentType) {
+            dataUrl = canvas.toDataURL("image/webp", 0.8);
+          }
+
+          pendingImageBase64 = dataUrl;
           imagePreviewThumb.src = pendingImageBase64;
           imagePreviewBar.classList.remove("hidden");
         };
         img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function processGeneralFile(file) {
+      if (!file) return;
+      if (file.size > 700 * 1024) {
+        showCommandNotice("File is too large (max 700 KB per file attachment).");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        pendingFileAttachment = {
+          name: file.name,
+          size: file.size,
+          type: file.type || "application/octet-stream",
+          data: event.target.result
+        };
+        filePreviewName.textContent = file.name;
+        filePreviewSize.textContent = `(${formatFileSize(file.size)})`;
+        filePreviewBar.classList.remove("hidden");
       };
       reader.readAsDataURL(file);
     }
@@ -1167,13 +1287,39 @@
       imagePreviewBar.classList.add("hidden");
     }
 
+    function clearPendingFile() {
+      pendingFileAttachment = null;
+      fileInput.value = "";
+      filePreviewName.textContent = "";
+      filePreviewSize.textContent = "";
+      filePreviewBar.classList.add("hidden");
+    }
+
     uploadBtn.addEventListener("click", () => imageInput.click());
     imageInput.addEventListener("change", (e) => processImageFile(e.target.files[0]));
     cancelImageBtn.addEventListener("click", clearPendingImage);
 
+    fileUploadBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (f.type.startsWith("image/")) {
+        processImageFile(f);
+      } else {
+        processGeneralFile(f);
+      }
+    });
+    cancelFileBtn.addEventListener("click", clearPendingFile);
+
     window.addEventListener("paste", (e) => {
-      const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-      if (item) processImageFile(item.getAsFile());
+      const items = [...(e.clipboardData?.items || [])];
+      const imageItem = items.find((i) => i.type.startsWith("image/"));
+      if (imageItem) {
+        processImageFile(imageItem.getAsFile());
+        return;
+      }
+      const fileItem = items.find((i) => i.kind === "file");
+      if (fileItem) processGeneralFile(fileItem.getAsFile());
     });
 
     window.addEventListener("dragover", (e) => {
@@ -1195,7 +1341,13 @@
       e.preventDefault();
       dropOverlay.classList.add("hidden");
       dropOverlay.classList.remove("flex");
-      if (currentUser && e.dataTransfer.files[0]) processImageFile(e.dataTransfer.files[0]);
+      const droppedFile = e.dataTransfer.files[0];
+      if (!currentUser || !droppedFile) return;
+      if (droppedFile.type.startsWith("image/")) {
+        processImageFile(droppedFile);
+      } else {
+        processGeneralFile(droppedFile);
+      }
     });
 
     lightbox.addEventListener("click", () => {
