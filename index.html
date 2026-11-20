@@ -172,10 +172,21 @@
         </div>
       </header>
 
-      <!-- Messages Feed -->
-      <main id="messages-container" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-black">
-        <div class="text-center text-xs text-zinc-600 py-4">Welcome to #General.</div>
-      </main>
+      <!-- Messages Feed Wrapper (Relative for Floating Jump-to-Bottom Button) -->
+      <div class="flex-1 min-h-0 relative flex flex-col">
+        <main id="messages-container" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-black">
+          <div class="text-center text-xs text-zinc-600 py-4">Welcome to #General.</div>
+        </main>
+
+        <!-- Floating Jump-to-Bottom Down Arrow Button -->
+        <button id="scroll-bottom-btn" type="button" title="Jump to latest messages"
+          class="hidden absolute bottom-3.5 right-4 z-20 w-9 h-9 rounded-full bg-zinc-900/95 hover:bg-zinc-800 text-yellow-500 border border-zinc-700 hover:border-yellow-500 shadow-xl flex items-center justify-center transition-all cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <polyline points="19 12 12 19 5 12"></polyline>
+          </svg>
+        </button>
+      </div>
 
       <!-- Emoji Picker Drawer -->
       <div id="emoji-drawer" class="shrink-0 hidden mx-3 mb-2 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl">
@@ -405,6 +416,7 @@
     const headerAvatarFallback = document.getElementById("header-avatar-fallback");
     const displayNameInput = document.getElementById("display-name-input");
     const messagesContainer = document.getElementById("messages-container");
+    const scrollBottomBtn = document.getElementById("scroll-bottom-btn");
     const messageForm = document.getElementById("message-form");
     const restrictedBanner = document.getElementById("restricted-banner");
     const messageInput = document.getElementById("message-input");
@@ -471,6 +483,7 @@
     let unsubscribers = [];
     let heartbeatInterval = null;
     let latestMessagesSnapshot = null;
+    let isInitialChatLoad = true;
 
     // Notes State (Minimized initially)
     let isNotesOpen = false;
@@ -483,6 +496,35 @@
     let acItems = [];
     let acSelectedIndex = 0;
     let acTriggerRange = null;
+
+    // =========================================================
+    // SCROLL-TO-BOTTOM & FLOATING DOWN ARROW BUTTON
+    // =========================================================
+    function getDistanceFromBottom() {
+      return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight;
+    }
+
+    function updateScrollBottomButton() {
+      if (getDistanceFromBottom() > 180) {
+        scrollBottomBtn.classList.remove("hidden");
+      } else {
+        scrollBottomBtn.classList.add("hidden");
+      }
+    }
+
+    function scrollToBottom(smooth = false) {
+      requestAnimationFrame(() => {
+        if (smooth) {
+          messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: "smooth" });
+        } else {
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        updateScrollBottomButton();
+      });
+    }
+
+    messagesContainer.addEventListener("scroll", updateScrollBottomButton);
+    scrollBottomBtn.addEventListener("click", () => scrollToBottom(true));
 
     // =========================================================
     // REPLY STATE HELPERS
@@ -816,6 +858,7 @@
 
       if (user) {
         currentUser = user;
+        isInitialChatLoad = true;
         isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
 
         const googleName = (user.displayName || user.email.split("@")[0]).slice(0, 50);
@@ -1197,13 +1240,10 @@
       unsubscribers.push(unsubMsgs);
     }
 
-    function scrollToBottom() {
-      requestAnimationFrame(() => {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      });
-    }
-
     function renderAllMessages(snapshot) {
+      const wasNearBottom = isInitialChatLoad || getDistanceFromBottom() < 180;
+      const prevScrollTop = messagesContainer.scrollTop;
+
       messagesContainer.innerHTML = "";
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
@@ -1229,9 +1269,16 @@
           }
         }
 
-        renderMessage(docSnap.id, data);
+        renderMessage(docSnap.id, data, wasNearBottom);
       });
-      scrollToBottom();
+
+      if (wasNearBottom) {
+        scrollToBottom(false);
+        isInitialChatLoad = false;
+      } else {
+        messagesContainer.scrollTop = prevScrollTop;
+        updateScrollBottomButton();
+      }
     }
 
     function formatMessageHTML(rawText, isMe, isWhisper = false, isPinkReply = false) {
@@ -1246,7 +1293,7 @@
       return escaped.replace(/(^|\s)(@[^\s@]+)/g, `$1<span class="${colorClass}">$2</span>`);
     }
 
-    function renderMessage(id, msg) {
+    function renderMessage(id, msg, stickToBottom = true) {
       const isMe = currentUser && msg.uid === currentUser.uid;
       const isWhisper = Boolean(msg.isWhisper);
       const isReply = Boolean(msg.replyTo && msg.replyTo.name);
@@ -1450,7 +1497,13 @@
         img.src = msg.image;
         img.alt = "Uploaded image";
         img.className = "max-h-72 max-w-full rounded-lg mb-1.5 cursor-zoom-in border border-black/20 object-contain";
-        img.onload = scrollToBottom;
+        img.onload = () => {
+          if (stickToBottom) {
+            scrollToBottom(false);
+          } else {
+            updateScrollBottomButton();
+          }
+        };
         img.onclick = () => {
           lightboxImg.src = msg.image;
           lightbox.classList.remove("hidden");
@@ -1576,6 +1629,7 @@
         clearPendingFile();
         clearReply();
         await addDoc(collection(db, "messages"), payload);
+        scrollToBottom(true);
         return;
       }
 
@@ -1598,6 +1652,7 @@
       clearPendingFile();
       clearReply();
       await addDoc(collection(db, "messages"), payload);
+      scrollToBottom(true);
     });
 
     // =========================================================
