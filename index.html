@@ -26,14 +26,14 @@
       <p class="text-sm text-zinc-400 mb-6">Sign in with your Google Account to join the chat room.</p>
 
       <button id="google-login-btn"
-        class="w-full flex items-center justify-center gap-3 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
-        <svg class="w-5 h-5" viewBox="0 0 24 24">
-          <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 1.76-1.3 3.25-2.77 4.25v3.53h4.48c2.62-2.41 4.13-5.96 4.13-10.15 0-.79-.07-1.56-.18-2.36z"/>
-          <path fill="currentColor" d="M12.18 22c3.74 0 6.88-1.24 9.17-3.36l-4.48-3.53c-1.24.83-2.83 1.32-4.69 1.32-3.61 0-6.67-2.44-7.76-5.71H-.2v3.6C2.08 18.85 6.76 22 12.18 22z"/>
-          <path fill="currentColor" d="M4.42 10.72c-.28-.83-.44-1.72-.44-2.64s.16-1.81.44-2.64V1.84H-.2C-1.14 3.71-1.68 5.83-1.68 8.08s.54 4.37 1.48 6.24l4.62-3.6z"/>
-          <path fill="currentColor" d="M12.18 3.63c2.03 0 3.86.7 5.3 2.07l3.97-3.97C19.05-.51 15.92-1.84 12.18-1.84 6.76-1.84 2.08 1.31-.2 5.84l4.62 3.6c1.09-3.27 4.15-5.81 7.76-5.81z"/>
+        class="w-full flex items-center justify-center gap-2.5 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
+        <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48">
+          <path fill="currentColor" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="currentColor" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="currentColor" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="currentColor" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
         </svg>
-        Sign in with Google
+        <span>Sign in with Google</span>
       </button>
 
       <p id="auth-error" class="text-xs text-red-400 mt-4 hidden"></p>
@@ -66,161 +66,219 @@
     </div>
   </div>
 
-  <!-- Main Chat UI -->
-  <div id="chat-app" class="hidden flex-col h-full min-h-0 max-w-4xl w-full mx-auto border-x border-zinc-900 relative overflow-hidden">
+  <!-- Main Workspace Wrapper (Colab-style Notes Panel + Chat App) -->
+  <div id="workspace-wrapper" class="hidden flex-1 min-h-0 w-full overflow-hidden relative">
 
-    <!-- Header: Top-Left #General | Top-Right Profile Picture + Editable Name Box -->
-    <header class="shrink-0 px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
-      <!-- Top Left: #General text + online count -->
-      <div class="flex items-center gap-3 shrink-0">
-        <span class="text-yellow-500 font-bold text-lg tracking-tight">#General</span>
-        <div class="flex items-center gap-1.5 text-xs text-zinc-400">
-          <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
-          <span id="online-count">1 online</span>
+    <!-- Collapsible Colab-Style Notes Drawer (Minimized Initially) -->
+    <aside id="notes-panel" class="hidden fixed inset-y-0 left-0 z-30 md:static w-full sm:w-[460px] lg:w-[540px] shrink-0 bg-zinc-950 border-r border-zinc-800 flex-col h-full min-h-0">
+      <!-- Notes Top Bar -->
+      <div class="shrink-0 px-3.5 py-2.5 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+          <span class="text-xs font-bold text-zinc-200 tracking-wide uppercase">Notes</span>
+          <span id="notes-saved-badge" class="text-[10px] text-zinc-500">Saved</span>
         </div>
-        <span id="lock-badge" class="hidden px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-red-400 text-[11px] font-semibold">
-          Locked
-        </span>
+        <div class="flex items-center gap-1.5">
+          <button id="add-note-btn" type="button"
+            class="text-xs px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer">
+            + Section
+          </button>
+          <button id="close-notes-btn" type="button" title="Minimize Notes"
+            class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-900 transition cursor-pointer">
+            ✕
+          </button>
+        </div>
       </div>
 
-      <!-- Top Right: Silent Admin tools + Profile Picture Upload + Editable Display Name (max 50) + Sign out -->
-      <div class="flex items-center gap-2 min-w-0">
-        <div id="admin-controls" class="hidden items-center gap-1.5 shrink-0">
-          <button id="toggle-lock-btn"
-            class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-yellow-600/40 transition cursor-pointer">
-            Lock
-          </button>
-          <button id="open-muted-btn"
-            class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition cursor-pointer">
-            Muted (<span id="muted-count">0</span>)
-          </button>
-        </div>
-
-        <!-- Hidden Avatar File Input -->
-        <input type="file" id="avatar-input" accept="image/*" class="hidden" />
-
-        <!-- Profile Picture Upload Button (Left of Name Text Block) -->
-        <button id="avatar-upload-btn" type="button" title="Click to upload profile picture"
-          class="relative group w-8 h-8 rounded-full bg-zinc-900 border border-zinc-700 hover:border-yellow-500 overflow-hidden shrink-0 flex items-center justify-center transition cursor-pointer">
-          <img id="header-avatar-img" src="" alt="Avatar" class="w-full h-full object-cover hidden" />
-          <span id="header-avatar-fallback" class="text-xs font-bold text-yellow-500">?</span>
-          <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-            <svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-              <circle cx="12" cy="13" r="4"></circle>
-            </svg>
+      <!-- Colab Split Body: Left Table of Contents + Right Note Blocks -->
+      <div class="flex-1 min-h-0 flex overflow-hidden">
+        <!-- Left Outline / TOC -->
+        <div class="w-36 sm:w-40 shrink-0 border-r border-zinc-900 bg-black/40 p-2.5 flex flex-col justify-between overflow-y-auto">
+          <div>
+            <div class="text-[11px] font-semibold text-zinc-500 px-2 mb-2">Sections</div>
+            <div id="notes-toc" class="space-y-1"></div>
           </div>
+          <button id="add-note-toc-btn" type="button"
+            class="mt-4 w-full text-left text-xs text-zinc-400 hover:text-yellow-500 px-2 py-1.5 rounded-lg hover:bg-zinc-900/70 transition cursor-pointer">
+            + Section
+          </button>
+        </div>
+
+        <!-- Right Note Cards Container -->
+        <div id="notes-cards-container" class="flex-1 min-h-0 overflow-y-auto p-3.5 space-y-3 bg-zinc-950"></div>
+      </div>
+    </aside>
+
+    <!-- Main Chat UI -->
+    <div id="chat-app" class="flex flex-col flex-1 h-full min-h-0 max-w-4xl w-full mx-auto border-x border-zinc-900 relative overflow-hidden">
+
+      <!-- Header: Top-Left Notes Toggle + #General | Top-Right Profile Picture + Editable Name Box -->
+      <header class="shrink-0 px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
+        <!-- Top Left: Small Notes Toggle Button + #General text + online count -->
+        <div class="flex items-center gap-2.5 shrink-0">
+          <button id="toggle-notes-btn" type="button" title="Open / Minimize Notes"
+            class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-yellow-500 border border-zinc-800 transition cursor-pointer">
+            <svg class="w-3.5 h-3.5 text-yellow-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span class="hidden sm:inline">Notes</span>
+          </button>
+
+          <span class="text-yellow-500 font-bold text-lg tracking-tight">#General</span>
+          <div class="flex items-center gap-1.5 text-xs text-zinc-400">
+            <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
+            <span id="online-count">1 online</span>
+          </div>
+          <span id="lock-badge" class="hidden px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-red-400 text-[11px] font-semibold">
+            Locked
+          </span>
+        </div>
+
+        <!-- Top Right: Silent Admin tools + Profile Picture Upload + Editable Display Name (max 50) + Sign out -->
+        <div class="flex items-center gap-2 min-w-0">
+          <div id="admin-controls" class="hidden items-center gap-1.5 shrink-0">
+            <button id="toggle-lock-btn"
+              class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-yellow-600/40 transition cursor-pointer">
+              Lock
+            </button>
+            <button id="open-muted-btn"
+              class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition cursor-pointer">
+              Muted (<span id="muted-count">0</span>)
+            </button>
+          </div>
+
+          <!-- Hidden Avatar File Input -->
+          <input type="file" id="avatar-input" accept="image/*" class="hidden" />
+
+          <!-- Profile Picture Upload Button (Left of Name Text Block) -->
+          <button id="avatar-upload-btn" type="button" title="Click to upload profile picture"
+            class="relative group w-8 h-8 rounded-full bg-zinc-900 border border-zinc-700 hover:border-yellow-500 overflow-hidden shrink-0 flex items-center justify-center transition cursor-pointer">
+            <img id="header-avatar-img" src="" alt="Avatar" class="w-full h-full object-cover hidden" />
+            <span id="header-avatar-fallback" class="text-xs font-bold text-yellow-500">?</span>
+            <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+              <svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                <circle cx="12" cy="13" r="4"></circle>
+              </svg>
+            </div>
+          </button>
+
+          <!-- Editable Display Name Text Box (Max 50 Characters) -->
+          <input id="display-name-input" type="text" maxlength="50" title="Your display name (click to edit, max 50 chars)"
+            placeholder="Your name"
+            class="w-32 sm:w-44 bg-zinc-900 text-yellow-500 font-medium text-sm rounded-xl px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 transition" />
+
+          <button id="logout-btn"
+            class="text-xs px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition cursor-pointer shrink-0">
+            Sign out
+          </button>
+        </div>
+      </header>
+
+      <!-- Messages Feed -->
+      <main id="messages-container" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-black">
+        <div class="text-center text-xs text-zinc-600 py-4">Welcome to #General.</div>
+      </main>
+
+      <!-- Emoji Picker Drawer (Triggered by Emoji Button) -->
+      <div id="emoji-drawer" class="shrink-0 hidden mx-3 mb-2 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl">
+        <div class="flex items-center justify-between mb-2">
+          <input id="emoji-drawer-search" type="text" placeholder="Search emoji (e.g. smile, fire, gg)..."
+            class="w-full bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-xs rounded-lg px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
+        </div>
+        <div id="emoji-grid" class="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-40 overflow-y-auto text-xl"></div>
+      </div>
+
+      <!-- Inline Autocomplete Popover (Triggered by :shortcode or @mention) -->
+      <div id="autocomplete-popup" class="shrink-0 hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
+
+      <!-- Whisper / Command / Upload Status Notice -->
+      <div id="command-feedback" class="shrink-0 hidden px-4 py-1.5 bg-purple-950/60 border-t border-purple-800/60 text-xs text-purple-300 flex items-center justify-between">
+        <span id="command-feedback-text"></span>
+        <button type="button" id="close-command-feedback" class="text-purple-400 hover:text-white ml-2 cursor-pointer">✕</button>
+      </div>
+
+      <!-- Image / GIF Attachment Preview -->
+      <div id="image-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
+        <div class="relative inline-block">
+          <img id="image-preview-thumb" src="" class="h-20 rounded-xl border border-yellow-600/50 object-contain bg-zinc-900" />
+          <button id="cancel-image-btn" type="button"
+            class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 hover:text-yellow-500 text-xs font-bold flex items-center justify-center cursor-pointer">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- File Attachment Preview -->
+      <div id="file-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
+        <div class="inline-flex items-center gap-2.5 bg-zinc-900 border border-yellow-600/50 rounded-xl px-3 py-2 text-xs">
+          <svg class="w-4 h-4 text-yellow-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          <span id="file-preview-name" class="text-zinc-200 font-medium truncate max-w-[220px]"></span>
+          <span id="file-preview-size" class="text-zinc-500"></span>
+          <button id="cancel-file-btn" type="button"
+            class="text-zinc-400 hover:text-yellow-500 font-bold ml-1 cursor-pointer">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Restricted / Muted Banner -->
+      <div id="restricted-banner" class="shrink-0 hidden p-3.5 bg-zinc-950 border-t border-zinc-800 text-center text-xs text-red-400 font-medium">
+        You have been muted by an admin.
+      </div>
+
+      <!-- Message Input Form -->
+      <form id="message-form" class="shrink-0 p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
+        <input type="file" id="image-input" accept="image/*" class="hidden" />
+        <input type="file" id="file-input" class="hidden" />
+
+        <!-- Upload Picture / Animated GIF -->
+        <button type="button" id="upload-btn" title="Upload picture or animated GIF"
+          class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
         </button>
 
-        <!-- Editable Display Name Text Box (Max 50 Characters) -->
-        <input id="display-name-input" type="text" maxlength="50" title="Your display name (click to edit, max 50 chars)"
-          placeholder="Your name"
-          class="w-36 sm:w-48 bg-zinc-900 text-yellow-500 font-medium text-sm rounded-xl px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 transition" />
-
-        <button id="logout-btn"
-          class="text-xs px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition cursor-pointer shrink-0">
-          Sign out
+        <!-- Upload Any File -->
+        <button type="button" id="file-upload-btn" title="Attach file (max ~700 KB)"
+          class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+          </svg>
         </button>
-      </div>
-    </header>
 
-    <!-- Messages Feed -->
-    <main id="messages-container" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-black">
-      <div class="text-center text-xs text-zinc-600 py-4">Welcome to #General.</div>
-    </main>
-
-    <!-- Emoji Picker Drawer (Triggered by Emoji Button) -->
-    <div id="emoji-drawer" class="shrink-0 hidden mx-3 mb-2 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl">
-      <div class="flex items-center justify-between mb-2">
-        <input id="emoji-drawer-search" type="text" placeholder="Search emoji (e.g. smile, fire, gg)..."
-          class="w-full bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-xs rounded-lg px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
-      </div>
-      <div id="emoji-grid" class="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-40 overflow-y-auto text-xl"></div>
-    </div>
-
-    <!-- Inline Autocomplete Popover (Triggered by :shortcode or @mention) -->
-    <div id="autocomplete-popup" class="shrink-0 hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
-
-    <!-- Whisper / Command / Upload Status Notice -->
-    <div id="command-feedback" class="shrink-0 hidden px-4 py-1.5 bg-purple-950/60 border-t border-purple-800/60 text-xs text-purple-300 flex items-center justify-between">
-      <span id="command-feedback-text"></span>
-      <button type="button" id="close-command-feedback" class="text-purple-400 hover:text-white ml-2 cursor-pointer">✕</button>
-    </div>
-
-    <!-- Image / GIF Attachment Preview -->
-    <div id="image-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
-      <div class="relative inline-block">
-        <img id="image-preview-thumb" src="" class="h-20 rounded-xl border border-yellow-600/50 object-contain bg-zinc-900" />
-        <button id="cancel-image-btn" type="button"
-          class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 hover:text-yellow-500 text-xs font-bold flex items-center justify-center cursor-pointer">
-          ✕
+        <!-- Emoji Picker -->
+        <button type="button" id="emoji-toggle-btn" title="Emoji list (or type :keyword)"
+          class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+            <line x1="9" y1="9" x2="9.01" y2="9"></line>
+            <line x1="15" y1="9" x2="15.01" y2="9"></line>
+          </svg>
         </button>
-      </div>
-    </div>
 
-    <!-- File Attachment Preview -->
-    <div id="file-preview-bar" class="shrink-0 hidden px-4 pt-3 pb-1 bg-zinc-950 border-t border-zinc-800">
-      <div class="inline-flex items-center gap-2.5 bg-zinc-900 border border-yellow-600/50 rounded-xl px-3 py-2 text-xs">
-        <svg class="w-4 h-4 text-yellow-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-        </svg>
-        <span id="file-preview-name" class="text-zinc-200 font-medium truncate max-w-[220px]"></span>
-        <span id="file-preview-size" class="text-zinc-500"></span>
-        <button id="cancel-file-btn" type="button"
-          class="text-zinc-400 hover:text-yellow-500 font-bold ml-1 cursor-pointer">
-          ✕
+        <input id="message-input" type="text" autocomplete="off" placeholder="Message #General... (: emoji, @ mention, /msg @user whisper)"
+          class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
+
+        <button type="submit"
+          class="px-5 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold text-sm transition cursor-pointer shrink-0">
+          Send
         </button>
-      </div>
+      </form>
     </div>
-
-    <!-- Restricted / Muted Banner -->
-    <div id="restricted-banner" class="shrink-0 hidden p-3.5 bg-zinc-950 border-t border-zinc-800 text-center text-xs text-red-400 font-medium">
-      You have been muted by an admin.
-    </div>
-
-    <!-- Message Input Form -->
-    <form id="message-form" class="shrink-0 p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
-      <input type="file" id="image-input" accept="image/*" class="hidden" />
-      <input type="file" id="file-input" class="hidden" />
-
-      <!-- Upload Picture / Animated GIF -->
-      <button type="button" id="upload-btn" title="Upload picture or animated GIF"
-        class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-          <circle cx="8.5" cy="8.5" r="1.5"></circle>
-          <polyline points="21 15 16 10 5 21"></polyline>
-        </svg>
-      </button>
-
-      <!-- Upload Any File -->
-      <button type="button" id="file-upload-btn" title="Attach file (max ~700 KB)"
-        class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-        </svg>
-      </button>
-
-      <!-- Emoji Picker -->
-      <button type="button" id="emoji-toggle-btn" title="Emoji list (or type :keyword)"
-        class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="10"></circle>
-          <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
-          <line x1="9" y1="9" x2="9.01" y2="9"></line>
-          <line x1="15" y1="9" x2="15.01" y2="9"></line>
-        </svg>
-      </button>
-
-      <input id="message-input" type="text" autocomplete="off" placeholder="Message #General... (: emoji, @ mention, /msg @user whisper)"
-        class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
-
-      <button type="submit"
-        class="px-5 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold text-sm transition cursor-pointer shrink-0">
-        Send
-      </button>
-    </form>
   </div>
 
   <!-- Firebase SDKs -->
@@ -336,7 +394,7 @@
 
     // DOM Elements
     const loginScreen = document.getElementById("login-screen");
-    const chatApp = document.getElementById("chat-app");
+    const workspaceWrapper = document.getElementById("workspace-wrapper");
     const googleLoginBtn = document.getElementById("google-login-btn");
     const logoutBtn = document.getElementById("logout-btn");
     const authError = document.getElementById("auth-error");
@@ -368,6 +426,16 @@
     const commandFeedbackText = document.getElementById("command-feedback-text");
     const closeCommandFeedback = document.getElementById("close-command-feedback");
 
+    // Colab-style Notes Elements
+    const notesPanel = document.getElementById("notes-panel");
+    const toggleNotesBtn = document.getElementById("toggle-notes-btn");
+    const closeNotesBtn = document.getElementById("close-notes-btn");
+    const addNoteBtn = document.getElementById("add-note-btn");
+    const addNoteTocBtn = document.getElementById("add-note-toc-btn");
+    const notesToc = document.getElementById("notes-toc");
+    const notesCardsContainer = document.getElementById("notes-cards-container");
+    const notesSavedBadge = document.getElementById("notes-saved-badge");
+
     // Emoji & Mention Elements
     const emojiToggleBtn = document.getElementById("emoji-toggle-btn");
     const emojiDrawer = document.getElementById("emoji-drawer");
@@ -391,18 +459,206 @@
     let isRoomLocked = false;
     let mutedUsersMap = {};
     let pendingImageBase64 = null;
-    let pendingFileAttachment = null; // { name, size, type, data }
+    let pendingFileAttachment = null;
     let unsubscribers = [];
     let heartbeatInterval = null;
     let latestMessagesSnapshot = null;
 
-    // Known users for @mentions & live avatars { uid: { name, avatar, online } }
+    // Notes State (Minimized initially)
+    let isNotesOpen = false;
+    let notesList = [];
+    let activeNoteId = null;
+
+    // Known users for @mentions & live avatars
     let knownUsers = {};
     // Autocomplete state
     let acItems = [];
     let acSelectedIndex = 0;
     let acTriggerRange = null;
 
+    // =========================================================
+    // COLAB-STYLE MINIMIZED NOTES PANEL
+    // =========================================================
+    function setNotesOpen(open) {
+      isNotesOpen = open;
+      if (isNotesOpen) {
+        notesPanel.classList.remove("hidden");
+        notesPanel.classList.add("flex");
+        toggleNotesBtn.classList.add("border-yellow-600/60", "text-yellow-500");
+        renderNotesUI();
+      } else {
+        notesPanel.classList.add("hidden");
+        notesPanel.classList.remove("flex");
+        toggleNotesBtn.classList.remove("border-yellow-600/60", "text-yellow-500");
+      }
+    }
+
+    toggleNotesBtn.addEventListener("click", () => setNotesOpen(!isNotesOpen));
+    closeNotesBtn.addEventListener("click", () => setNotesOpen(false));
+
+    function loadUserNotes(uid) {
+      try {
+        const saved = localStorage.getItem(`syrup_notes_${uid}`);
+        if (saved) {
+          notesList = JSON.parse(saved);
+        }
+      } catch (_) {}
+      if (!Array.isArray(notesList) || notesList.length === 0) {
+        notesList = [
+          { id: "note_1", title: "First note", content: "contents" },
+          { id: "note_2", title: "Second", content: "etc" }
+        ];
+      }
+      activeNoteId = notesList[0]?.id || null;
+      renderNotesUI();
+    }
+
+    function saveUserNotes() {
+      if (!currentUser) return;
+      localStorage.setItem(`syrup_notes_${currentUser.uid}`, JSON.stringify(notesList));
+      notesSavedBadge.textContent = "Saved";
+    }
+
+    function addNewNoteSection() {
+      const newNote = {
+        id: "note_" + Date.now(),
+        title: "New note",
+        content: ""
+      };
+      notesList.push(newNote);
+      activeNoteId = newNote.id;
+      saveUserNotes();
+      renderNotesUI();
+    }
+
+    addNoteBtn.addEventListener("click", addNewNoteSection);
+    addNoteTocBtn.addEventListener("click", addNewNoteSection);
+
+    function renderNotesUI() {
+      notesToc.innerHTML = "";
+      notesCardsContainer.innerHTML = "";
+
+      notesList.forEach((note, idx) => {
+        const isActive = note.id === activeNoteId;
+
+        // 1. Left Outline Item
+        const tocBtn = document.createElement("button");
+        tocBtn.type = "button";
+        tocBtn.textContent = note.title.trim() || "Untitled";
+        tocBtn.className = `w-full text-left text-xs px-2.5 py-1.5 rounded-lg truncate transition cursor-pointer ${
+          isActive
+            ? "bg-yellow-600/15 text-yellow-400 font-semibold"
+            : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60"
+        }`;
+        tocBtn.onclick = () => {
+          activeNoteId = note.id;
+          renderNotesUI();
+          const cardEl = document.getElementById(`card_${note.id}`);
+          if (cardEl) cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        };
+        notesToc.appendChild(tocBtn);
+
+        // 2. Right Colab-Style Note Cell Card
+        const card = document.createElement("div");
+        card.id = `card_${note.id}`;
+        card.className = `group relative rounded-xl p-3.5 transition border ${
+          isActive
+            ? "bg-zinc-900/70 border-zinc-700"
+            : "bg-transparent border-transparent hover:border-zinc-800 hover:bg-zinc-900/30"
+        }`;
+        card.onclick = () => {
+          if (activeNoteId !== note.id) {
+            activeNoteId = note.id;
+            renderNotesUI();
+          }
+        };
+
+        // Floating Colab-Style Action Pill (Top-Right of Card)
+        const toolbar = document.createElement("div");
+        toolbar.className = `absolute -top-3 right-3 flex items-center gap-0.5 bg-zinc-900 border border-zinc-700 rounded-lg px-1.5 py-0.5 shadow-lg transition ${
+          isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`;
+
+        const upBtn = document.createElement("button");
+        upBtn.type = "button";
+        upBtn.title = "Move up";
+        upBtn.textContent = "↑";
+        upBtn.disabled = idx === 0;
+        upBtn.className = "px-1.5 py-0.5 text-xs text-zinc-300 hover:text-yellow-500 disabled:opacity-30 cursor-pointer";
+        upBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (idx === 0) return;
+          [notesList[idx - 1], notesList[idx]] = [notesList[idx], notesList[idx - 1]];
+          saveUserNotes();
+          renderNotesUI();
+        };
+
+        const downBtn = document.createElement("button");
+        downBtn.type = "button";
+        downBtn.title = "Move down";
+        downBtn.textContent = "↓";
+        downBtn.disabled = idx === notesList.length - 1;
+        downBtn.className = "px-1.5 py-0.5 text-xs text-zinc-300 hover:text-yellow-500 disabled:opacity-30 cursor-pointer";
+        downBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (idx === notesList.length - 1) return;
+          [notesList[idx + 1], notesList[idx]] = [notesList[idx], notesList[idx + 1]];
+          saveUserNotes();
+          renderNotesUI();
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.title = "Delete note";
+        delBtn.textContent = "✕";
+        delBtn.className = "px-1.5 py-0.5 text-xs text-zinc-400 hover:text-red-400 cursor-pointer";
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          notesList = notesList.filter((n) => n.id !== note.id);
+          if (activeNoteId === note.id) activeNoteId = notesList[0]?.id || null;
+          saveUserNotes();
+          renderNotesUI();
+        };
+
+        toolbar.appendChild(upBtn);
+        toolbar.appendChild(downBtn);
+        toolbar.appendChild(delBtn);
+        card.appendChild(toolbar);
+
+        // Editable Note Title
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.value = note.title;
+        titleInput.placeholder = "Section title...";
+        titleInput.className = "w-full bg-transparent text-base font-semibold text-white placeholder-zinc-600 focus:outline-none mb-2";
+        titleInput.oninput = (e) => {
+          note.title = e.target.value;
+          tocBtn.textContent = note.title.trim() || "Untitled";
+          notesSavedBadge.textContent = "Saving...";
+          saveUserNotes();
+        };
+
+        // Editable Note Body
+        const bodyTextarea = document.createElement("textarea");
+        bodyTextarea.value = note.content;
+        bodyTextarea.placeholder = "Write notes here...";
+        bodyTextarea.rows = Math.max(2, note.content.split("\n").length);
+        bodyTextarea.className = "w-full bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none resize-y leading-relaxed";
+        bodyTextarea.oninput = (e) => {
+          note.content = e.target.value;
+          notesSavedBadge.textContent = "Saving...";
+          saveUserNotes();
+        };
+
+        card.appendChild(titleInput);
+        card.appendChild(bodyTextarea);
+        notesCardsContainer.appendChild(card);
+      });
+    }
+
+    // =========================================================
+    // CORE HELPERS & AUTH
+    // =========================================================
     function showCommandNotice(msg) {
       commandFeedbackText.textContent = msg;
       commandFeedback.classList.remove("hidden");
@@ -442,7 +698,6 @@
       }
     }
 
-    // Handle Profile Picture Upload (Center-cropped 128x128)
     avatarUploadBtn.addEventListener("click", () => avatarInput.click());
     avatarInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -536,6 +791,9 @@
         currentAvatarUrl = savedAvatar || user.photoURL || "";
         updateHeaderAvatarUI();
 
+        loadUserNotes(user.uid);
+        setNotesOpen(false); // Always minimized initially
+
         if (isAdmin) {
           adminControls.classList.remove("hidden");
           adminControls.classList.add("flex");
@@ -545,8 +803,8 @@
         }
 
         loginScreen.classList.add("hidden");
-        chatApp.classList.remove("hidden");
-        chatApp.classList.add("flex");
+        workspaceWrapper.classList.remove("hidden");
+        workspaceWrapper.classList.add("flex");
 
         startModerationListeners();
         startChatListener();
@@ -556,8 +814,8 @@
         currentAvatarUrl = "";
         isAdmin = false;
         loginScreen.classList.remove("hidden");
-        chatApp.classList.add("hidden");
-        chatApp.classList.remove("flex");
+        workspaceWrapper.classList.add("hidden");
+        workspaceWrapper.classList.remove("flex");
       }
     });
 
@@ -670,7 +928,6 @@
       const cursor = messageInput.selectionStart ?? messageInput.value.length;
       const textBeforeCursor = messageInput.value.slice(0, cursor);
 
-      // 1. Check for ":keyword"
       const emojiMatch = textBeforeCursor.match(/(?:^|\s)(:[a-zA-Z0-9_+-]{2,})$/);
       if (emojiMatch) {
         const token = emojiMatch[1];
@@ -691,7 +948,6 @@
         }
       }
 
-      // 2. Check for "@name" mention (works anywhere including after "/msg ")
       const mentionMatch = textBeforeCursor.match(/(?:^|\s)(@[^\s@]*)$/);
       if (mentionMatch) {
         const token = mentionMatch[1];
@@ -912,7 +1168,6 @@
           };
         }
 
-        // Whisper visibility filter: only sender and recipient can view whispers
         if (data.isWhisper) {
           if (!currentUser) return;
           const myUid = currentUser.uid;
@@ -932,7 +1187,6 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // Format @mentions by changing text color only (no background highlight)
     function formatMessageHTML(rawText, isMe, isWhisper = false) {
       const escaped = escapeHTML(rawText);
       const colorClass = isWhisper
@@ -961,7 +1215,6 @@
       const meta = document.createElement("div");
       meta.className = "flex items-center gap-2 mb-1 px-1";
 
-      // User Avatar next to Name
       const avatarSrc = msg.avatar || knownUsers[msg.uid]?.avatar || "";
       if (avatarSrc) {
         const avatarImg = document.createElement("img");
@@ -1023,7 +1276,6 @@
         meta.appendChild(delBtn);
       }
 
-      // Bubble Styling: Purple for Whispers, Yellow for Self, Dark for Others
       const bubble = document.createElement("div");
       if (isWhisper) {
         bubble.className =
@@ -1039,7 +1291,6 @@
           "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-zinc-900 text-zinc-100 border border-zinc-800";
       }
 
-      // Whisper Header Tag inside the Purple Bubble (No lock emoji)
       if (isWhisper) {
         const whisperTag = document.createElement("div");
         whisperTag.className = "text-[11px] font-semibold text-purple-300 mb-1";
@@ -1049,7 +1300,6 @@
         bubble.appendChild(whisperTag);
       }
 
-      // Image / Animated GIF / Transparent PNG display
       if (msg.image) {
         const img = document.createElement("img");
         img.src = msg.image;
@@ -1063,7 +1313,6 @@
         bubble.appendChild(img);
       }
 
-      // Downloadable File Attachment Card
       if (msg.file && msg.file.data) {
         const fileLink = document.createElement("a");
         fileLink.href = msg.file.data;
@@ -1098,7 +1347,6 @@
       messagesContainer.appendChild(wrapper);
     }
 
-    // Parse "/msg @target [message]"
     function parseWhisperCommand(rawText) {
       if (!rawText.toLowerCase().startsWith("/msg ")) return null;
       const rest = rawText.slice(5).trim();
@@ -1149,7 +1397,6 @@
       const rawText = messageInput.value.trim();
       if (!rawText && !pendingImageBase64 && !pendingFileAttachment) return;
 
-      // Check for "/msg @user text" whisper command
       const whisper = parseWhisperCommand(rawText);
       if (whisper) {
         if (whisper.error) {
@@ -1184,7 +1431,6 @@
         return;
       }
 
-      // Standard public message
       const payload = {
         uid: currentUser.uid,
         email: currentUser.email || "",
@@ -1210,7 +1456,6 @@
     function processImageFile(file) {
       if (!file || !file.type.startsWith("image/")) return;
 
-      // 1. Preserve animated GIFs directly without canvas re-encoding
       if (file.type === "image/gif") {
         if (file.size > 750 * 1024) {
           showCommandNotice("Animated GIF is too large (max ~750 KB for chat storage).");
@@ -1226,7 +1471,6 @@
         return;
       }
 
-      // 2. Preserve transparency for PNG/WebP, compress JPEGs smoothly
       const isTransparentType = file.type === "image/png" || file.type === "image/webp";
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -1245,7 +1489,6 @@
             ? canvas.toDataURL("image/png")
             : canvas.toDataURL("image/jpeg", 0.78);
 
-          // Fallback to WebP if PNG exceeds Firestore's ~750 KB safe limit
           if (dataUrl.length > 900000 && isTransparentType) {
             dataUrl = canvas.toDataURL("image/webp", 0.8);
           }
