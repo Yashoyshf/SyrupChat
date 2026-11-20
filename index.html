@@ -113,7 +113,7 @@
     <!-- Main Chat UI -->
     <div id="chat-app" class="flex flex-col flex-1 h-full min-h-0 max-w-4xl w-full mx-auto border-x border-zinc-900 relative overflow-hidden">
 
-      <!-- Header: Top-Left Notes Toggle + #General | Top-Right Profile Picture + Editable Name Box -->
+      <!-- Header -->
       <header class="shrink-0 px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2.5 shrink-0">
           <button id="toggle-notes-btn" type="button" title="Open / Minimize Notes"
@@ -467,7 +467,7 @@
     let mutedUsersMap = {};
     let pendingImageBase64 = null;
     let pendingFileAttachment = null;
-    let replyingTo = null; // { id, name, text }
+    let replyingTo = null; // { id, uid, name, text }
     let unsubscribers = [];
     let heartbeatInterval = null;
     let latestMessagesSnapshot = null;
@@ -497,6 +497,7 @@
         : "";
       replyingTo = {
         id,
+        uid: msg.uid || null,
         name: msg.name || "Unknown",
         text: snippet
       };
@@ -1196,6 +1197,12 @@
       unsubscribers.push(unsubMsgs);
     }
 
+    function scrollToBottom() {
+      requestAnimationFrame(() => {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      });
+    }
+
     function renderAllMessages(snapshot) {
       messagesContainer.innerHTML = "";
       snapshot.forEach((docSnap) => {
@@ -1224,14 +1231,14 @@
 
         renderMessage(docSnap.id, data);
       });
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      scrollToBottom();
     }
 
-    function formatMessageHTML(rawText, isMe, isWhisper = false, isReply = false) {
+    function formatMessageHTML(rawText, isMe, isWhisper = false, isPinkReply = false) {
       const escaped = escapeHTML(rawText);
       const colorClass = isWhisper
         ? "text-purple-300 font-bold"
-        : isReply
+        : isPinkReply
         ? "text-pink-300 font-bold"
         : isMe
         ? "text-white font-bold"
@@ -1243,9 +1250,18 @@
       const isMe = currentUser && msg.uid === currentUser.uid;
       const isWhisper = Boolean(msg.isWhisper);
       const isReply = Boolean(msg.replyTo && msg.replyTo.name);
+
+      // Only the replier (isMe) and the person being replied to see the bubble in pink
+      const myName = getActiveDisplayName().toLowerCase();
+      const isRepliedToMe =
+        isReply &&
+        currentUser &&
+        ((msg.replyTo.uid && msg.replyTo.uid === currentUser.uid) ||
+          (!msg.replyTo.uid && msg.replyTo.name.toLowerCase() === myName));
+      const isPinkReply = isReply && (isMe || isRepliedToMe);
+
       const isMsgFromAdmin = ADMIN_EMAILS.includes((msg.email || "").toLowerCase());
       const isUserMuted = Boolean(mutedUsersMap[msg.uid]);
-      const myName = getActiveDisplayName().toLowerCase();
       const mentionsMe = !isMe && msg.text && msg.text.toLowerCase().includes(`@${myName}`);
 
       const wrapper = document.createElement("div");
@@ -1284,7 +1300,7 @@
       nameBtn.className = `text-xs font-semibold hover:underline cursor-pointer ${
         isWhisper
           ? "text-purple-400"
-          : isReply
+          : isPinkReply
           ? "text-pink-400"
           : isMe
           ? "text-yellow-500"
@@ -1372,12 +1388,12 @@
 
       meta.appendChild(actionsWrap);
 
-      // Bubble Styling: Purple for Whispers, Pink for Replies, Yellow for Self, Dark for Others
+      // Bubble Styling
       const bubble = document.createElement("div");
       if (isWhisper) {
         bubble.className =
           "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-purple-950/90 text-purple-100 border border-purple-500/70 shadow-[0_0_15px_rgba(168,85,247,0.18)]";
-      } else if (isReply) {
+      } else if (isPinkReply) {
         bubble.className =
           "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-pink-950/90 text-pink-100 border border-pink-500/70 shadow-[0_0_15px_rgba(236,72,153,0.18)]";
       } else if (isMe) {
@@ -1400,19 +1416,20 @@
         bubble.appendChild(whisperTag);
       }
 
-      // Quoted Reply Header inside the Pink Bubble
+      // Quoted Reply Header
       if (isReply) {
         const quoteBox = document.createElement("button");
         quoteBox.type = "button";
         quoteBox.title = "Jump to original message";
-        quoteBox.className =
-          "w-full text-left flex items-center gap-1.5 text-[11px] text-pink-200 bg-pink-900/50 hover:bg-pink-900/80 border-l-2 border-pink-400 rounded-r px-2.5 py-1 mb-1.5 transition cursor-pointer";
+        quoteBox.className = isPinkReply
+          ? "w-full text-left flex items-center gap-1.5 text-[11px] text-pink-200 bg-pink-900/50 hover:bg-pink-900/80 border-l-2 border-pink-400 rounded-r px-2.5 py-1 mb-1.5 transition cursor-pointer"
+          : "w-full text-left flex items-center gap-1.5 text-[11px] text-zinc-400 bg-zinc-950/70 hover:bg-zinc-800/80 border-l-2 border-zinc-600 rounded-r px-2.5 py-1 mb-1.5 transition cursor-pointer";
         quoteBox.innerHTML = `
-          <svg class="w-3 h-3 text-pink-300 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="w-3 h-3 ${isPinkReply ? "text-pink-300" : "text-zinc-400"} shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <polyline points="9 14 4 9 9 4"></polyline>
             <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
           </svg>
-          <span class="font-bold text-pink-300 shrink-0">@${escapeHTML(msg.replyTo.name)}</span>
+          <span class="font-bold ${isPinkReply ? "text-pink-300" : "text-zinc-300"} shrink-0">@${escapeHTML(msg.replyTo.name)}</span>
           <span class="truncate opacity-85">${escapeHTML(msg.replyTo.text || "")}</span>
         `;
         quoteBox.onclick = () => {
@@ -1420,8 +1437,9 @@
           const targetEl = document.getElementById(`msg_${msg.replyTo.id}`);
           if (targetEl) {
             targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-            targetEl.classList.add("bg-pink-500/15");
-            setTimeout(() => targetEl.classList.remove("bg-pink-500/15"), 1200);
+            const highlightClass = isPinkReply ? "bg-pink-500/15" : "bg-yellow-500/15";
+            targetEl.classList.add(highlightClass);
+            setTimeout(() => targetEl.classList.remove(highlightClass), 1200);
           }
         };
         bubble.appendChild(quoteBox);
@@ -1432,6 +1450,7 @@
         img.src = msg.image;
         img.alt = "Uploaded image";
         img.className = "max-h-72 max-w-full rounded-lg mb-1.5 cursor-zoom-in border border-black/20 object-contain";
+        img.onload = scrollToBottom;
         img.onclick = () => {
           lightboxImg.src = msg.image;
           lightbox.classList.remove("hidden");
@@ -1445,12 +1464,12 @@
         fileLink.href = msg.file.data;
         fileLink.download = msg.file.name || "attachment";
         fileLink.className = `flex items-center gap-2.5 px-3 py-2 rounded-lg mb-1.5 border transition ${
-          isMe && !isWhisper && !isReply
+          isMe && !isWhisper && !isPinkReply
             ? "bg-black/15 border-black/25 text-black hover:bg-black/25"
             : "bg-zinc-950/80 border-zinc-700 text-zinc-100 hover:border-yellow-500"
         }`;
         fileLink.innerHTML = `
-          <svg class="w-4 h-4 shrink-0 ${isMe && !isWhisper && !isReply ? "text-black" : "text-yellow-500"}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 shrink-0 ${isMe && !isWhisper && !isPinkReply ? "text-black" : "text-yellow-500"}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
@@ -1465,7 +1484,7 @@
       if (msg.text) {
         const p = document.createElement("p");
         p.className = "whitespace-pre-wrap";
-        p.innerHTML = formatMessageHTML(msg.text, isMe, isWhisper, isReply);
+        p.innerHTML = formatMessageHTML(msg.text, isMe, isWhisper, isPinkReply);
         bubble.appendChild(p);
       }
 
