@@ -66,10 +66,10 @@
     </div>
   </div>
 
-  <!-- Main Workspace Wrapper (Colab-style Notes Panel + Chat App) -->
+  <!-- Main Workspace Wrapper (Shared Colab-style Notes Panel + Chat App) -->
   <div id="workspace-wrapper" class="hidden flex-1 min-h-0 w-full overflow-hidden relative">
 
-    <!-- Collapsible Colab-Style Notes Drawer (Minimized Initially) -->
+    <!-- Collapsible Shared Notes Drawer (Minimized Initially) -->
     <aside id="notes-panel" class="hidden fixed inset-y-0 left-0 z-30 md:static w-full sm:w-[460px] lg:w-[540px] shrink-0 bg-zinc-950 border-r border-zinc-800 flex-col h-full min-h-0">
       <div class="shrink-0 px-3.5 py-2.5 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between">
         <div class="flex items-center gap-2">
@@ -79,8 +79,8 @@
             <line x1="16" y1="13" x2="8" y2="13"></line>
             <line x1="16" y1="17" x2="8" y2="17"></line>
           </svg>
-          <span class="text-xs font-bold text-zinc-200 tracking-wide uppercase">Notes</span>
-          <span id="notes-saved-badge" class="text-[10px] text-zinc-500">Saved</span>
+          <span class="text-xs font-bold text-zinc-200 tracking-wide uppercase">Shared Notes</span>
+          <span id="notes-saved-badge" class="text-[10px] text-zinc-500">Synced</span>
         </div>
         <div class="flex items-center gap-1.5">
           <button id="add-note-btn" type="button"
@@ -116,13 +116,14 @@
       <!-- Header -->
       <header class="shrink-0 px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2.5 shrink-0">
-          <button id="toggle-notes-btn" type="button" title="Open / Minimize Notes"
+          <button id="toggle-notes-btn" type="button" title="Open / Minimize Shared Notes"
             class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-yellow-500 border border-zinc-800 transition cursor-pointer">
             <svg class="w-3.5 h-3.5 text-yellow-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
             </svg>
             <span class="hidden sm:inline">Notes</span>
+            <span id="notes-count-badge" class="hidden text-[10px] px-1.5 py-0.2 rounded-full bg-yellow-600/20 text-yellow-500 font-semibold">0</span>
           </button>
 
           <span class="text-yellow-500 font-bold text-lg tracking-tight">#General</span>
@@ -313,6 +314,7 @@
       deleteDoc,
       doc,
       setDoc,
+      updateDoc,
       onSnapshot,
       query,
       orderBy,
@@ -445,9 +447,10 @@
     const replyTargetSnippet = document.getElementById("reply-target-snippet");
     const cancelReplyBtn = document.getElementById("cancel-reply-btn");
 
-    // Colab-style Notes Elements
+    // Shared Notes Elements
     const notesPanel = document.getElementById("notes-panel");
     const toggleNotesBtn = document.getElementById("toggle-notes-btn");
+    const notesCountBadge = document.getElementById("notes-count-badge");
     const closeNotesBtn = document.getElementById("close-notes-btn");
     const addNoteBtn = document.getElementById("add-note-btn");
     const addNoteTocBtn = document.getElementById("add-note-toc-btn");
@@ -485,10 +488,11 @@
     let latestMessagesSnapshot = null;
     let isInitialChatLoad = true;
 
-    // Notes State (Minimized initially)
+    // Mutual Notes State (Minimized initially, synced via Firestore)
     let isNotesOpen = false;
     let notesList = [];
     let activeNoteId = null;
+    let noteSaveTimers = {};
 
     // Known users for @mentions & live avatars
     let knownUsers = {};
@@ -559,7 +563,7 @@
     cancelReplyBtn.addEventListener("click", clearReply);
 
     // =========================================================
-    // COLAB-STYLE MINIMIZED NOTES PANEL
+    // SHARED / MUTUAL NOTES PANEL (FIRESTORE REAL-TIME)
     // =========================================================
     function setNotesOpen(open) {
       isNotesOpen = open;
@@ -578,54 +582,87 @@
     toggleNotesBtn.addEventListener("click", () => setNotesOpen(!isNotesOpen));
     closeNotesBtn.addEventListener("click", () => setNotesOpen(false));
 
-    function loadUserNotes(uid) {
-      try {
-        const saved = localStorage.getItem(`syrup_notes_${uid}`);
-        if (saved) {
-          notesList = JSON.parse(saved);
+    function startSharedNotesListener() {
+      const q = query(collection(db, "notes"), orderBy("order", "asc"));
+      const unsubNotes = onSnapshot(q, (snap) => {
+        notesList = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data()
+        }));
+
+        if (notesList.length > 0) {
+          notesCountBadge.textContent = notesList.length;
+          notesCountBadge.classList.remove("hidden");
+          if (!activeNoteId || !notesList.some((n) => n.id === activeNoteId)) {
+            activeNoteId = notesList[0].id;
+          }
+        } else {
+          notesCountBadge.classList.add("hidden");
+          activeNoteId = null;
         }
-      } catch (_) {}
-      if (!Array.isArray(notesList) || notesList.length === 0) {
-        notesList = [
-          { id: "note_1", title: "First note", content: "contents" },
-          { id: "note_2", title: "Second", content: "etc" }
-        ];
-      }
-      activeNoteId = notesList[0]?.id || null;
-      renderNotesUI();
+
+        // Avoid re-rendering while user is actively typing inside a note input/textarea
+        const activeEl = document.activeElement;
+        if (activeEl && notesCardsContainer.contains(activeEl)) {
+          updateNotesTocOnly();
+          notesSavedBadge.textContent = "Synced";
+          return;
+        }
+
+        if (isNotesOpen) {
+          renderNotesUI();
+        }
+      });
+      unsubscribers.push(unsubNotes);
     }
 
-    function saveUserNotes() {
+    function queueNoteUpdate(noteId, fields) {
+      notesSavedBadge.textContent = "Saving...";
+      clearTimeout(noteSaveTimers[noteId]);
+      noteSaveTimers[noteId] = setTimeout(async () => {
+        try {
+          await updateDoc(doc(db, "notes", noteId), {
+            ...fields,
+            updatedBy: getActiveDisplayName(),
+            updatedAt: serverTimestamp()
+          });
+          notesSavedBadge.textContent = "Synced";
+        } catch (err) {
+          notesSavedBadge.textContent = "Error saving";
+        }
+      }, 300);
+    }
+
+    async function addNewNoteSection() {
       if (!currentUser) return;
-      localStorage.setItem(`syrup_notes_${currentUser.uid}`, JSON.stringify(notesList));
-      notesSavedBadge.textContent = "Saved";
-    }
+      notesSavedBadge.textContent = "Adding...";
+      const nextOrder =
+        notesList.length > 0
+          ? Math.max(...notesList.map((n) => Number(n.order) || 0)) + 1
+          : Date.now();
 
-    function addNewNoteSection() {
-      const newNote = {
-        id: "note_" + Date.now(),
-        title: "New note",
-        content: ""
-      };
-      notesList.push(newNote);
-      activeNoteId = newNote.id;
-      saveUserNotes();
-      renderNotesUI();
+      const docRef = await addDoc(collection(db, "notes"), {
+        title: "",
+        content: "",
+        order: nextOrder,
+        updatedBy: getActiveDisplayName(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      activeNoteId = docRef.id;
+      notesSavedBadge.textContent = "Synced";
     }
 
     addNoteBtn.addEventListener("click", addNewNoteSection);
     addNoteTocBtn.addEventListener("click", addNewNoteSection);
 
-    function renderNotesUI() {
+    function updateNotesTocOnly() {
       notesToc.innerHTML = "";
-      notesCardsContainer.innerHTML = "";
-
-      notesList.forEach((note, idx) => {
+      notesList.forEach((note) => {
         const isActive = note.id === activeNoteId;
-
         const tocBtn = document.createElement("button");
         tocBtn.type = "button";
-        tocBtn.textContent = note.title.trim() || "Untitled";
+        tocBtn.textContent = (note.title || "").trim() || "Untitled";
         tocBtn.className = `w-full text-left text-xs px-2.5 py-1.5 rounded-lg truncate transition cursor-pointer ${
           isActive
             ? "bg-yellow-600/15 text-yellow-400 font-semibold"
@@ -638,18 +675,42 @@
           if (cardEl) cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
         };
         notesToc.appendChild(tocBtn);
+      });
+    }
+
+    function renderNotesUI() {
+      updateNotesTocOnly();
+      notesCardsContainer.innerHTML = "";
+
+      if (notesList.length === 0) {
+        notesCardsContainer.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center px-6 py-12">
+            <p class="text-xs text-zinc-400 mb-3">No shared notes yet. Save important links, info, or reminders here so they don't get buried in chat.</p>
+            <button type="button" id="empty-add-note-btn"
+              class="text-xs px-3 py-1.5 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-black font-semibold transition cursor-pointer">
+              + Add first note
+            </button>
+          </div>
+        `;
+        const emptyBtn = document.getElementById("empty-add-note-btn");
+        if (emptyBtn) emptyBtn.onclick = addNewNoteSection;
+        return;
+      }
+
+      notesList.forEach((note, idx) => {
+        const isActive = note.id === activeNoteId;
 
         const card = document.createElement("div");
         card.id = `card_${note.id}`;
         card.className = `group relative rounded-xl p-3.5 transition border ${
           isActive
             ? "bg-zinc-900/70 border-zinc-700"
-            : "bg-transparent border-transparent hover:border-zinc-800 hover:bg-zinc-900/30"
+            : "bg-zinc-900/20 border-zinc-800/70 hover:border-zinc-700 hover:bg-zinc-900/40"
         }`;
         card.onclick = () => {
           if (activeNoteId !== note.id) {
             activeNoteId = note.id;
-            renderNotesUI();
+            updateNotesTocOnly();
           }
         };
 
@@ -664,12 +725,17 @@
         upBtn.textContent = "↑";
         upBtn.disabled = idx === 0;
         upBtn.className = "px-1.5 py-0.5 text-xs text-zinc-300 hover:text-yellow-500 disabled:opacity-30 cursor-pointer";
-        upBtn.onclick = (e) => {
+        upBtn.onclick = async (e) => {
           e.stopPropagation();
           if (idx === 0) return;
-          [notesList[idx - 1], notesList[idx]] = [notesList[idx], notesList[idx - 1]];
-          saveUserNotes();
-          renderNotesUI();
+          const prev = notesList[idx - 1];
+          const curr = notesList[idx];
+          const prevOrder = prev.order ?? idx - 1;
+          const currOrder = curr.order ?? idx;
+          await Promise.all([
+            updateDoc(doc(db, "notes", prev.id), { order: currOrder }),
+            updateDoc(doc(db, "notes", curr.id), { order: prevOrder })
+          ]);
         };
 
         const downBtn = document.createElement("button");
@@ -678,12 +744,17 @@
         downBtn.textContent = "↓";
         downBtn.disabled = idx === notesList.length - 1;
         downBtn.className = "px-1.5 py-0.5 text-xs text-zinc-300 hover:text-yellow-500 disabled:opacity-30 cursor-pointer";
-        downBtn.onclick = (e) => {
+        downBtn.onclick = async (e) => {
           e.stopPropagation();
           if (idx === notesList.length - 1) return;
-          [notesList[idx + 1], notesList[idx]] = [notesList[idx], notesList[idx + 1]];
-          saveUserNotes();
-          renderNotesUI();
+          const next = notesList[idx + 1];
+          const curr = notesList[idx];
+          const nextOrder = next.order ?? idx + 1;
+          const currOrder = curr.order ?? idx;
+          await Promise.all([
+            updateDoc(doc(db, "notes", next.id), { order: currOrder }),
+            updateDoc(doc(db, "notes", curr.id), { order: nextOrder })
+          ]);
         };
 
         const delBtn = document.createElement("button");
@@ -691,12 +762,10 @@
         delBtn.title = "Delete note";
         delBtn.textContent = "✕";
         delBtn.className = "px-1.5 py-0.5 text-xs text-zinc-400 hover:text-red-400 cursor-pointer";
-        delBtn.onclick = (e) => {
+        delBtn.onclick = async (e) => {
           e.stopPropagation();
-          notesList = notesList.filter((n) => n.id !== note.id);
-          if (activeNoteId === note.id) activeNoteId = notesList[0]?.id || null;
-          saveUserNotes();
-          renderNotesUI();
+          clearTimeout(noteSaveTimers[note.id]);
+          await deleteDoc(doc(db, "notes", note.id));
         };
 
         toolbar.appendChild(upBtn);
@@ -706,29 +775,35 @@
 
         const titleInput = document.createElement("input");
         titleInput.type = "text";
-        titleInput.value = note.title;
-        titleInput.placeholder = "Section title...";
+        titleInput.value = note.title || "";
+        titleInput.placeholder = "Title...";
         titleInput.className = "w-full bg-transparent text-base font-semibold text-white placeholder-zinc-600 focus:outline-none mb-2";
         titleInput.oninput = (e) => {
           note.title = e.target.value;
-          tocBtn.textContent = note.title.trim() || "Untitled";
-          notesSavedBadge.textContent = "Saving...";
-          saveUserNotes();
+          updateNotesTocOnly();
+          queueNoteUpdate(note.id, { title: e.target.value });
         };
 
         const bodyTextarea = document.createElement("textarea");
-        bodyTextarea.value = note.content;
-        bodyTextarea.placeholder = "Write notes here...";
-        bodyTextarea.rows = Math.max(2, note.content.split("\n").length);
+        bodyTextarea.value = note.content || "";
+        bodyTextarea.placeholder = "Write shared notes here...";
+        bodyTextarea.rows = Math.max(2, (note.content || "").split("\n").length);
         bodyTextarea.className = "w-full bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none resize-y leading-relaxed";
         bodyTextarea.oninput = (e) => {
           note.content = e.target.value;
-          notesSavedBadge.textContent = "Saving...";
-          saveUserNotes();
+          queueNoteUpdate(note.id, { content: e.target.value });
         };
 
         card.appendChild(titleInput);
         card.appendChild(bodyTextarea);
+
+        if (note.updatedBy) {
+          const footer = document.createElement("div");
+          footer.className = "mt-2 pt-1.5 border-t border-zinc-800/60 text-[10px] text-zinc-500";
+          footer.textContent = `Edited by ${note.updatedBy}`;
+          card.appendChild(footer);
+        }
+
         notesCardsContainer.appendChild(card);
       });
     }
@@ -869,8 +944,7 @@
         currentAvatarUrl = savedAvatar || user.photoURL || "";
         updateHeaderAvatarUI();
 
-        loadUserNotes(user.uid);
-        setNotesOpen(false);
+        setNotesOpen(false); // Minimized initially
 
         if (isAdmin) {
           adminControls.classList.remove("hidden");
@@ -885,6 +959,7 @@
         workspaceWrapper.classList.add("flex");
 
         startModerationListeners();
+        startSharedNotesListener();
         startChatListener();
         startPresence(user.uid);
       } else {
