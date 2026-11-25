@@ -256,7 +256,7 @@
       </div>
 
       <!-- Message Input Form -->
-      <form id="message-form" class="shrink-0 p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2">
+      <form id="message-form" class="shrink-0 p-3 bg-zinc-950 border-t border-zinc-800 flex items-end gap-2">
         <input type="file" id="image-input" accept="image/*" class="hidden" />
         <input type="file" id="file-input" class="hidden" />
 
@@ -286,8 +286,9 @@
           </svg>
         </button>
 
-        <input id="message-input" type="text" autocomplete="off" placeholder="Message #General... (: emoji, @ mention, /msg @user whisper)"
-          class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600" />
+        <textarea id="message-input" rows="1" autocomplete="off"
+          placeholder="Message #General... (: emoji, @ mention, Shift+Enter new line)"
+          class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 resize-none max-h-36 overflow-y-auto leading-5"></textarea>
 
         <button type="submit"
           class="px-5 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold text-sm transition cursor-pointer shrink-0">
@@ -502,6 +503,14 @@
     let acTriggerRange = null;
 
     // =========================================================
+    // AUTO-RESIZE TEXTAREA FOR MULTI-LINE INPUT
+    // =========================================================
+    function autoResizeMessageInput() {
+      messageInput.style.height = "auto";
+      messageInput.style.height = Math.min(messageInput.scrollHeight, 144) + "px";
+    }
+
+    // =========================================================
     // SCROLL-TO-BOTTOM & FLOATING DOWN ARROW BUTTON
     // =========================================================
     function getDistanceFromBottom() {
@@ -584,35 +593,41 @@
 
     function startSharedNotesListener() {
       const q = query(collection(db, "notes"), orderBy("order", "asc"));
-      const unsubNotes = onSnapshot(q, (snap) => {
-        notesList = snap.docs.map((d) => ({
-          id: d.id,
-          ...d.data()
-        }));
+      const unsubNotes = onSnapshot(
+        q,
+        (snap) => {
+          notesList = snap.docs.map((d) => ({
+            id: d.id,
+            ...d.data()
+          }));
 
-        if (notesList.length > 0) {
-          notesCountBadge.textContent = notesList.length;
-          notesCountBadge.classList.remove("hidden");
-          if (!activeNoteId || !notesList.some((n) => n.id === activeNoteId)) {
-            activeNoteId = notesList[0].id;
+          if (notesList.length > 0) {
+            notesCountBadge.textContent = notesList.length;
+            notesCountBadge.classList.remove("hidden");
+            if (!activeNoteId || !notesList.some((n) => n.id === activeNoteId)) {
+              activeNoteId = notesList[0].id;
+            }
+          } else {
+            notesCountBadge.classList.add("hidden");
+            activeNoteId = null;
           }
-        } else {
-          notesCountBadge.classList.add("hidden");
-          activeNoteId = null;
-        }
 
-        // Avoid re-rendering while user is actively typing inside a note input/textarea
-        const activeEl = document.activeElement;
-        if (activeEl && notesCardsContainer.contains(activeEl)) {
-          updateNotesTocOnly();
-          notesSavedBadge.textContent = "Synced";
-          return;
-        }
+          const activeEl = document.activeElement;
+          if (activeEl && notesCardsContainer.contains(activeEl)) {
+            updateNotesTocOnly();
+            notesSavedBadge.textContent = "Synced";
+            return;
+          }
 
-        if (isNotesOpen) {
-          renderNotesUI();
+          if (isNotesOpen) {
+            renderNotesUI();
+          }
+        },
+        (err) => {
+          console.error("Notes listener error:", err);
+          notesSavedBadge.textContent = "Sync error";
         }
-      });
+      );
       unsubscribers.push(unsubNotes);
     }
 
@@ -628,29 +643,40 @@
           });
           notesSavedBadge.textContent = "Synced";
         } catch (err) {
-          notesSavedBadge.textContent = "Error saving";
+          console.error("Failed to update note:", err);
+          notesSavedBadge.textContent = "Permission error";
+          showCommandNotice("Could not save note. Check Firestore Rules for /notes.");
         }
       }, 300);
     }
 
     async function addNewNoteSection() {
-      if (!currentUser) return;
+      if (!currentUser) {
+        showCommandNotice("Please sign in first to add a note.");
+        return;
+      }
       notesSavedBadge.textContent = "Adding...";
       const nextOrder =
         notesList.length > 0
           ? Math.max(...notesList.map((n) => Number(n.order) || 0)) + 1
           : Date.now();
 
-      const docRef = await addDoc(collection(db, "notes"), {
-        title: "",
-        content: "",
-        order: nextOrder,
-        updatedBy: getActiveDisplayName(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      activeNoteId = docRef.id;
-      notesSavedBadge.textContent = "Synced";
+      try {
+        const docRef = await addDoc(collection(db, "notes"), {
+          title: "",
+          content: "",
+          order: nextOrder,
+          updatedBy: getActiveDisplayName(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        activeNoteId = docRef.id;
+        notesSavedBadge.textContent = "Synced";
+      } catch (err) {
+        console.error("Failed to add note:", err);
+        notesSavedBadge.textContent = "Permission error";
+        showCommandNotice("Firestore blocked adding a note. Check Firestore Rules for /notes.");
+      }
     }
 
     addNoteBtn.addEventListener("click", addNewNoteSection);
@@ -732,10 +758,14 @@
           const curr = notesList[idx];
           const prevOrder = prev.order ?? idx - 1;
           const currOrder = curr.order ?? idx;
-          await Promise.all([
-            updateDoc(doc(db, "notes", prev.id), { order: currOrder }),
-            updateDoc(doc(db, "notes", curr.id), { order: prevOrder })
-          ]);
+          try {
+            await Promise.all([
+              updateDoc(doc(db, "notes", prev.id), { order: currOrder }),
+              updateDoc(doc(db, "notes", curr.id), { order: prevOrder })
+            ]);
+          } catch (err) {
+            showCommandNotice("Could not reorder notes. Check Firestore Rules.");
+          }
         };
 
         const downBtn = document.createElement("button");
@@ -751,10 +781,14 @@
           const curr = notesList[idx];
           const nextOrder = next.order ?? idx + 1;
           const currOrder = curr.order ?? idx;
-          await Promise.all([
-            updateDoc(doc(db, "notes", next.id), { order: currOrder }),
-            updateDoc(doc(db, "notes", curr.id), { order: nextOrder })
-          ]);
+          try {
+            await Promise.all([
+              updateDoc(doc(db, "notes", next.id), { order: currOrder }),
+              updateDoc(doc(db, "notes", curr.id), { order: nextOrder })
+            ]);
+          } catch (err) {
+            showCommandNotice("Could not reorder notes. Check Firestore Rules.");
+          }
         };
 
         const delBtn = document.createElement("button");
@@ -765,7 +799,11 @@
         delBtn.onclick = async (e) => {
           e.stopPropagation();
           clearTimeout(noteSaveTimers[note.id]);
-          await deleteDoc(doc(db, "notes", note.id));
+          try {
+            await deleteDoc(doc(db, "notes", note.id));
+          } catch (err) {
+            showCommandNotice("Could not delete note. Check Firestore Rules.");
+          }
         };
 
         toolbar.appendChild(upBtn);
@@ -1025,6 +1063,7 @@
       const after = messageInput.value.slice(end);
       messageInput.value = before + textToInsert + after;
       const newPos = start + textToInsert.length;
+      autoResizeMessageInput();
       messageInput.focus();
       messageInput.setSelectionRange(newPos, newPos);
     }
@@ -1039,6 +1078,7 @@
 
       const newPos = before.length + chosen.insertText.length;
       hideAutocomplete();
+      autoResizeMessageInput();
       messageInput.focus();
       messageInput.setSelectionRange(newPos, newPos);
     }
@@ -1078,6 +1118,8 @@
     }
 
     messageInput.addEventListener("input", () => {
+      autoResizeMessageInput();
+
       const cursor = messageInput.selectionStart ?? messageInput.value.length;
       const textBeforeCursor = messageInput.value.slice(0, cursor);
 
@@ -1172,6 +1214,14 @@
           return;
         }
       }
+
+      // Enter sends the message; Shift + Enter inserts a new line naturally
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        messageForm.requestSubmit();
+        return;
+      }
+
       if (e.key === "Escape" && replyingTo) {
         clearReply();
       }
@@ -1698,6 +1748,7 @@
         };
 
         messageInput.value = "";
+        autoResizeMessageInput();
         emojiDrawer.classList.add("hidden");
         hideAutocomplete();
         clearPendingImage();
@@ -1721,6 +1772,7 @@
       };
 
       messageInput.value = "";
+      autoResizeMessageInput();
       emojiDrawer.classList.add("hidden");
       hideAutocomplete();
       clearPendingImage();
