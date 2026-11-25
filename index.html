@@ -44,7 +44,7 @@
   <div id="drop-overlay" class="fixed inset-0 z-40 bg-black/90 border-2 border-dashed border-yellow-500 hidden items-center justify-center pointer-events-none">
     <div class="text-center">
       <p class="text-xl font-bold text-yellow-500">Drop picture, GIF, or file to attach</p>
-      <p class="text-sm text-zinc-400 mt-1">GIF animations & PNG transparency are preserved</p>
+      <p class="text-sm text-zinc-400 mt-1">Up to 10 MB · GIF animations & PNG transparency preserved</p>
     </div>
   </div>
 
@@ -260,7 +260,7 @@
         <input type="file" id="image-input" accept="image/*" class="hidden" />
         <input type="file" id="file-input" class="hidden" />
 
-        <button type="button" id="upload-btn" title="Upload picture or animated GIF"
+        <button type="button" id="upload-btn" title="Upload picture or animated GIF (max 10 MB)"
           class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -269,7 +269,7 @@
           </svg>
         </button>
 
-        <button type="button" id="file-upload-btn" title="Attach file (max ~700 KB)"
+        <button type="button" id="file-upload-btn" title="Attach file (max 10 MB)"
           class="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-500 border border-zinc-800 transition cursor-pointer shrink-0">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
@@ -290,8 +290,8 @@
           placeholder="Message #General... (: emoji, @ mention, Shift+Enter new line)"
           class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 resize-none max-h-36 overflow-y-auto leading-5"></textarea>
 
-        <button type="submit"
-          class="px-5 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold text-sm transition cursor-pointer shrink-0">
+        <button type="submit" id="send-btn"
+          class="px-5 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 text-black font-semibold text-sm transition cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
           Send
         </button>
       </form>
@@ -316,12 +316,17 @@
       doc,
       setDoc,
       updateDoc,
+      getDocs,
       onSnapshot,
       query,
+      where,
       orderBy,
       limit,
       serverTimestamp
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+    const CHUNK_CHAR_SIZE = 700000; // ~700 KB per Firestore chunk (well under 1 MiB limit)
 
     const ADMIN_EMAILS = [
       "11530584@stu.tshs.tp.edu.tw",
@@ -423,6 +428,7 @@
     const messageForm = document.getElementById("message-form");
     const restrictedBanner = document.getElementById("restricted-banner");
     const messageInput = document.getElementById("message-input");
+    const sendBtn = document.getElementById("send-btn");
     const imageInput = document.getElementById("image-input");
     const uploadBtn = document.getElementById("upload-btn");
     const imagePreviewBar = document.getElementById("image-preview-bar");
@@ -481,15 +487,17 @@
     let isAdmin = false;
     let isRoomLocked = false;
     let mutedUsersMap = {};
-    let pendingImageBase64 = null;
-    let pendingFileAttachment = null;
+    let pendingImageFile = null;      // { file, previewUrl }
+    let pendingFileAttachment = null; // { file, name, size, type }
+    let isUploading = false;
     let replyingTo = null; // { id, uid, name, text }
     let unsubscribers = [];
     let heartbeatInterval = null;
     let latestMessagesSnapshot = null;
     let isInitialChatLoad = true;
+    const reassembledBlobCache = new Map(); // groupId -> ObjectURL
 
-    // Mutual Notes State (Minimized initially, synced via Firestore)
+    // Mutual Notes State
     let isNotesOpen = false;
     let notesList = [];
     let activeNoteId = null;
@@ -501,6 +509,83 @@
     let acItems = [];
     let acSelectedIndex = 0;
     let acTriggerRange = null;
+
+    // =========================================================
+    // FIRESTORE CHUNKED UPLOAD & DOWNLOAD (UP TO 10 MB FREE)
+    // =========================================================
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Failed to read file."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function storeDataUrlInFirestore(dataUrl, onProgress) {
+      // Small enough to fit directly inside the message document
+      if (dataUrl.length <= CHUNK_CHAR_SIZE) {
+        return { inlineData: dataUrl, chunkGroupId: null, totalChunks: 0 };
+      }
+
+      const groupId = `${currentUser.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const totalChunks = Math.ceil(dataUrl.length / CHUNK_CHAR_SIZE);
+
+      for (let i = 0; i < totalChunks; i++) {
+        if (onProgress) onProgress(i + 1, totalChunks);
+        const slice = dataUrl.slice(i * CHUNK_CHAR_SIZE, (i + 1) * CHUNK_CHAR_SIZE);
+        await addDoc(collection(db, "fileChunks"), {
+          groupId,
+          index: i,
+          data: slice,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      return { inlineData: null, chunkGroupId: groupId, totalChunks };
+    }
+
+    async function loadChunkedBlobUrl(groupId, mimeType) {
+      if (reassembledBlobCache.has(groupId)) {
+        return reassembledBlobCache.get(groupId);
+      }
+
+      const q = query(collection(db, "fileChunks"), where("groupId", "==", groupId));
+      const snap = await getDocs(q);
+      const sorted = snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => a.index - b.index);
+
+      if (sorted.length === 0) {
+        throw new Error("File chunks not found.");
+      }
+
+      const fullDataUrl = sorted.map((c) => c.data).join("");
+      const commaIdx = fullDataUrl.indexOf(",");
+      const header = fullDataUrl.slice(0, commaIdx);
+      const base64 = fullDataUrl.slice(commaIdx + 1);
+      const detectedMime = header.match(/data:(.*?);base64/)?.[1] || mimeType || "application/octet-stream";
+
+      const binaryStr = atob(base64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: detectedMime });
+      const blobUrl = URL.createObjectURL(blob);
+      reassembledBlobCache.set(groupId, blobUrl);
+      return blobUrl;
+    }
+
+    async function deleteChunksForGroup(groupId) {
+      if (!groupId) return;
+      try {
+        const q = query(collection(db, "fileChunks"), where("groupId", "==", groupId));
+        const snap = await getDocs(q);
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      } catch (_) {}
+    }
 
     // =========================================================
     // AUTO-RESIZE TEXTAREA FOR MULTI-LINE INPUT
@@ -545,7 +630,7 @@
     function startReplyTo(id, msg) {
       const snippet = msg.text
         ? msg.text.slice(0, 80)
-        : msg.image
+        : msg.image || msg.imageChunkGroupId
         ? "[Image]"
         : msg.file
         ? `[File: ${msg.file.name}]`
@@ -982,7 +1067,7 @@
         currentAvatarUrl = savedAvatar || user.photoURL || "";
         updateHeaderAvatarUI();
 
-        setNotesOpen(false); // Minimized initially
+        setNotesOpen(false);
 
         if (isAdmin) {
           adminControls.classList.remove("hidden");
@@ -1215,7 +1300,6 @@
         }
       }
 
-      // Enter sends the message; Shift + Enter inserts a new line naturally
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         messageForm.requestSubmit();
@@ -1423,7 +1507,6 @@
       const isWhisper = Boolean(msg.isWhisper);
       const isReply = Boolean(msg.replyTo && msg.replyTo.name);
 
-      // Only the replier (isMe) and the person being replied to see the bubble in pink
       const myName = getActiveDisplayName().toLowerCase();
       const isRepliedToMe =
         isReply &&
@@ -1489,11 +1572,11 @@
       meta.appendChild(nameBtn);
       meta.appendChild(timeSpan);
 
-      // Action Icons Bar (Reply Up-Left Arrow, Mute Slashed Audio, Delete Trash Bin)
+      // Action Icons Bar
       const actionsWrap = document.createElement("div");
       actionsWrap.className = "flex items-center gap-1 ml-0.5";
 
-      // 1. Reply Button (Discord Up-Left Curved Arrow Icon)
+      // 1. Reply Button
       const replyBtn = document.createElement("button");
       replyBtn.type = "button";
       replyBtn.title = "Reply";
@@ -1508,7 +1591,7 @@
       replyBtn.onclick = () => startReplyTo(id, msg);
       actionsWrap.appendChild(replyBtn);
 
-      // 2. Mute / Unmute Button (Audio Speaker with Slash Icon) - Admins only
+      // 2. Mute / Unmute Button - Admins only
       if (isAdmin && !isMe && !isMsgFromAdmin) {
         const muteBtn = document.createElement("button");
         muteBtn.type = "button";
@@ -1539,7 +1622,7 @@
         actionsWrap.appendChild(muteBtn);
       }
 
-      // 3. Delete Button (Trash Bin Icon) - Sender or Admin
+      // 3. Delete Button (also cleans up any file chunks)
       if (isMe || isAdmin) {
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -1554,7 +1637,11 @@
             <line x1="14" y1="11" x2="14" y2="17"></line>
           </svg>
         `;
-        delBtn.onclick = () => deleteDoc(doc(db, "messages", id));
+        delBtn.onclick = async () => {
+          await deleteDoc(doc(db, "messages", id));
+          if (msg.imageChunkGroupId) deleteChunksForGroup(msg.imageChunkGroupId);
+          if (msg.file?.chunkGroupId) deleteChunksForGroup(msg.file.chunkGroupId);
+        };
         actionsWrap.appendChild(delBtn);
       }
 
@@ -1617,9 +1704,9 @@
         bubble.appendChild(quoteBox);
       }
 
-      if (msg.image) {
+      // Image (inline or reassembled from Firestore chunks)
+      if (msg.image || msg.imageChunkGroupId) {
         const img = document.createElement("img");
-        img.src = msg.image;
         img.alt = "Uploaded image";
         img.className = "max-h-72 max-w-full rounded-lg mb-1.5 cursor-zoom-in border border-black/20 object-contain";
         img.onload = () => {
@@ -1630,33 +1717,70 @@
           }
         };
         img.onclick = () => {
-          lightboxImg.src = msg.image;
+          if (!img.src) return;
+          lightboxImg.src = img.src;
           lightbox.classList.remove("hidden");
           lightbox.classList.add("flex");
         };
+
+        if (msg.image) {
+          img.src = msg.image;
+        } else if (msg.imageChunkGroupId) {
+          loadChunkedBlobUrl(msg.imageChunkGroupId, msg.imageMime || "image/gif")
+            .then((url) => {
+              img.src = url;
+            })
+            .catch(() => {
+              img.alt = "Image unavailable";
+            });
+        }
         bubble.appendChild(img);
       }
 
-      if (msg.file && msg.file.data) {
-        const fileLink = document.createElement("a");
-        fileLink.href = msg.file.data;
-        fileLink.download = msg.file.name || "attachment";
-        fileLink.className = `flex items-center gap-2.5 px-3 py-2 rounded-lg mb-1.5 border transition ${
+      // General File Attachment (inline or chunked up to 10 MB)
+      if (msg.file && (msg.file.data || msg.file.chunkGroupId)) {
+        const fileCard = document.createElement("button");
+        fileCard.type = "button";
+        fileCard.className = `w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg mb-1.5 border transition cursor-pointer ${
           isMe && !isWhisper && !isPinkReply
             ? "bg-black/15 border-black/25 text-black hover:bg-black/25"
             : "bg-zinc-950/80 border-zinc-700 text-zinc-100 hover:border-yellow-500"
         }`;
-        fileLink.innerHTML = `
+
+        const statusLabelId = `file_status_${id}`;
+        fileCard.innerHTML = `
           <svg class="w-4 h-4 shrink-0 ${isMe && !isWhisper && !isPinkReply ? "text-black" : "text-yellow-500"}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
           <div class="min-w-0 flex-1">
             <div class="text-xs font-semibold truncate">${escapeHTML(msg.file.name || "File")}</div>
-            <div class="text-[10px] opacity-75">${escapeHTML(formatFileSize(msg.file.size))} · Click to download</div>
+            <div id="${statusLabelId}" class="text-[10px] opacity-75">${escapeHTML(formatFileSize(msg.file.size))} · Click to download</div>
           </div>
         `;
-        bubble.appendChild(fileLink);
+
+        fileCard.onclick = async () => {
+          const statusEl = document.getElementById(statusLabelId);
+          try {
+            let downloadHref = msg.file.data;
+            if (!downloadHref && msg.file.chunkGroupId) {
+              if (statusEl) statusEl.textContent = "Downloading chunks...";
+              downloadHref = await loadChunkedBlobUrl(msg.file.chunkGroupId, msg.file.type);
+              if (statusEl) statusEl.textContent = `${formatFileSize(msg.file.size)} · Click to download`;
+            }
+            const a = document.createElement("a");
+            a.href = downloadHref;
+            a.download = msg.file.name || "attachment";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          } catch (err) {
+            console.error("Download error:", err);
+            if (statusEl) statusEl.textContent = "Failed to download file";
+          }
+        };
+
+        bubble.appendChild(fileCard);
       }
 
       if (msg.text) {
@@ -1715,11 +1839,11 @@
 
     messageForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (!currentUser) return;
+      if (!currentUser || isUploading) return;
       if (!isAdmin && (mutedUsersMap[currentUser.uid] || isRoomLocked)) return;
 
       const rawText = messageInput.value.trim();
-      if (!rawText && !pendingImageBase64 && !pendingFileAttachment) return;
+      if (!rawText && !pendingImageFile && !pendingFileAttachment) return;
 
       const whisper = parseWhisperCommand(rawText);
       if (whisper) {
@@ -1727,25 +1851,78 @@
           showCommandNotice(whisper.error);
           return;
         }
-        if (!whisper.whisperText && !pendingImageBase64 && !pendingFileAttachment) {
+        if (!whisper.whisperText && !pendingImageFile && !pendingFileAttachment) {
           showCommandNotice(`Type a message after @${whisper.targetName} to send a whisper.`);
           return;
         }
+      }
 
-        const payload = {
-          uid: currentUser.uid,
-          email: currentUser.email || "",
-          name: getActiveDisplayName(),
-          avatar: currentAvatarUrl || null,
-          text: whisper.whisperText,
-          image: pendingImageBase64 || null,
-          file: pendingFileAttachment || null,
-          replyTo: replyingTo ? { ...replyingTo } : null,
-          isWhisper: true,
-          whisperToUid: whisper.targetUid || null,
-          whisperToName: whisper.targetName,
-          createdAt: serverTimestamp()
-        };
+      isUploading = true;
+      sendBtn.disabled = true;
+      const originalSendText = sendBtn.textContent;
+
+      try {
+        let inlineImage = null;
+        let imageChunkGroupId = null;
+        let imageMime = null;
+        let filePayload = null;
+
+        if (pendingImageFile) {
+          sendBtn.textContent = "Uploading...";
+          const dataUrl = await readFileAsDataURL(pendingImageFile.file);
+          const stored = await storeDataUrlInFirestore(dataUrl, (curr, total) => {
+            sendBtn.textContent = `Uploading ${curr}/${total}`;
+          });
+          inlineImage = stored.inlineData;
+          imageChunkGroupId = stored.chunkGroupId;
+          imageMime = pendingImageFile.file.type || "image/png";
+        }
+
+        if (pendingFileAttachment) {
+          sendBtn.textContent = "Uploading...";
+          const dataUrl = await readFileAsDataURL(pendingFileAttachment.file);
+          const stored = await storeDataUrlInFirestore(dataUrl, (curr, total) => {
+            sendBtn.textContent = `Uploading ${curr}/${total}`;
+          });
+          filePayload = {
+            name: pendingFileAttachment.name,
+            size: pendingFileAttachment.size,
+            type: pendingFileAttachment.type,
+            data: stored.inlineData,
+            chunkGroupId: stored.chunkGroupId
+          };
+        }
+
+        const payload = whisper
+          ? {
+              uid: currentUser.uid,
+              email: currentUser.email || "",
+              name: getActiveDisplayName(),
+              avatar: currentAvatarUrl || null,
+              text: whisper.whisperText,
+              image: inlineImage,
+              imageChunkGroupId,
+              imageMime,
+              file: filePayload,
+              replyTo: replyingTo ? { ...replyingTo } : null,
+              isWhisper: true,
+              whisperToUid: whisper.targetUid || null,
+              whisperToName: whisper.targetName,
+              createdAt: serverTimestamp()
+            }
+          : {
+              uid: currentUser.uid,
+              email: currentUser.email || "",
+              name: getActiveDisplayName(),
+              avatar: currentAvatarUrl || null,
+              text: rawText,
+              image: inlineImage,
+              imageChunkGroupId,
+              imageMime,
+              file: filePayload,
+              replyTo: replyingTo ? { ...replyingTo } : null,
+              createdAt: serverTimestamp()
+            };
 
         messageInput.value = "";
         autoResizeMessageInput();
@@ -1754,109 +1931,60 @@
         clearPendingImage();
         clearPendingFile();
         clearReply();
+
         await addDoc(collection(db, "messages"), payload);
         scrollToBottom(true);
-        return;
+      } catch (err) {
+        console.error("Send/upload failed:", err);
+        showCommandNotice("Upload failed. Make sure /fileChunks is allowed in Firestore Rules.");
+      } finally {
+        isUploading = false;
+        sendBtn.disabled = false;
+        sendBtn.textContent = originalSendText;
       }
-
-      const payload = {
-        uid: currentUser.uid,
-        email: currentUser.email || "",
-        name: getActiveDisplayName(),
-        avatar: currentAvatarUrl || null,
-        text: rawText,
-        image: pendingImageBase64 || null,
-        file: pendingFileAttachment || null,
-        replyTo: replyingTo ? { ...replyingTo } : null,
-        createdAt: serverTimestamp()
-      };
-
-      messageInput.value = "";
-      autoResizeMessageInput();
-      emojiDrawer.classList.add("hidden");
-      hideAutocomplete();
-      clearPendingImage();
-      clearPendingFile();
-      clearReply();
-      await addDoc(collection(db, "messages"), payload);
-      scrollToBottom(true);
     });
 
     // =========================================================
-    // IMAGE (GIF, PNG, JPG, WEBP) & GENERAL FILE UPLOAD HANDLERS
+    // IMAGE & GENERAL FILE UPLOAD HANDLERS (MAX 10 MB)
     // =========================================================
     function processImageFile(file) {
       if (!file || !file.type.startsWith("image/")) return;
-
-      if (file.type === "image/gif") {
-        if (file.size > 750 * 1024) {
-          showCommandNotice("Animated GIF is too large (max ~750 KB for chat storage).");
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          pendingImageBase64 = event.target.result;
-          imagePreviewThumb.src = pendingImageBase64;
-          imagePreviewBar.classList.remove("hidden");
-        };
-        reader.readAsDataURL(file);
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showCommandNotice(`Image is too large (${formatFileSize(file.size)}). Maximum size is 10 MB.`);
         return;
       }
 
-      const isTransparentType = file.type === "image/png" || file.type === "image/webp";
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const MAX_WIDTH = 900;
-          const scale = Math.min(1, MAX_WIDTH / img.width);
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          const ctx = canvas.getContext("2d");
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          let dataUrl = isTransparentType
-            ? canvas.toDataURL("image/png")
-            : canvas.toDataURL("image/jpeg", 0.78);
-
-          if (dataUrl.length > 900000 && isTransparentType) {
-            dataUrl = canvas.toDataURL("image/webp", 0.8);
-          }
-
-          pendingImageBase64 = dataUrl;
-          imagePreviewThumb.src = pendingImageBase64;
-          imagePreviewBar.classList.remove("hidden");
-        };
-        img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
+      if (pendingImageFile?.previewUrl) {
+        URL.revokeObjectURL(pendingImageFile.previewUrl);
+      }
+      const previewUrl = URL.createObjectURL(file);
+      pendingImageFile = { file, previewUrl };
+      imagePreviewThumb.src = previewUrl;
+      imagePreviewBar.classList.remove("hidden");
     }
 
     function processGeneralFile(file) {
       if (!file) return;
-      if (file.size > 700 * 1024) {
-        showCommandNotice("File is too large (max 700 KB per file attachment).");
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showCommandNotice(`File is too large (${formatFileSize(file.size)}). Maximum size is 10 MB.`);
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        pendingFileAttachment = {
-          name: file.name,
-          size: file.size,
-          type: file.type || "application/octet-stream",
-          data: event.target.result
-        };
-        filePreviewName.textContent = file.name;
-        filePreviewSize.textContent = `(${formatFileSize(file.size)})`;
-        filePreviewBar.classList.remove("hidden");
+      pendingFileAttachment = {
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type || "application/octet-stream"
       };
-      reader.readAsDataURL(file);
+      filePreviewName.textContent = file.name;
+      filePreviewSize.textContent = `(${formatFileSize(file.size)})`;
+      filePreviewBar.classList.remove("hidden");
     }
 
     function clearPendingImage() {
-      pendingImageBase64 = null;
+      if (pendingImageFile?.previewUrl) {
+        URL.revokeObjectURL(pendingImageFile.previewUrl);
+      }
+      pendingImageFile = null;
       imageInput.value = "";
       imagePreviewThumb.src = "";
       imagePreviewBar.classList.add("hidden");
