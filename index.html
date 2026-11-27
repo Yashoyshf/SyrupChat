@@ -202,9 +202,9 @@
       <div id="autocomplete-popup" class="shrink-0 hidden mx-3 mb-2 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto"></div>
 
       <!-- Whisper / Command / Upload Status Notice -->
-      <div id="command-feedback" class="shrink-0 hidden px-4 py-1.5 bg-purple-950/60 border-t border-purple-800/60 text-xs text-purple-300 flex items-center justify-between">
+      <div id="command-feedback" class="shrink-0 hidden px-4 py-1.5 bg-orange-950/70 border-t border-orange-700/60 text-xs text-orange-200 flex items-center justify-between">
         <span id="command-feedback-text"></span>
-        <button type="button" id="close-command-feedback" class="text-purple-400 hover:text-white ml-2 cursor-pointer">✕</button>
+        <button type="button" id="close-command-feedback" class="text-orange-300 hover:text-white ml-2 cursor-pointer">✕</button>
       </div>
 
       <!-- Active Reply Bar (Pink Accent) -->
@@ -287,7 +287,7 @@
         </button>
 
         <textarea id="message-input" rows="1" autocomplete="off"
-          placeholder="Message #General... (: emoji, @ mention, Shift+Enter new line)"
+          placeholder="Message #General... (: emoji, @ mention, /poll 10m Title [A, B])"
           class="flex-1 min-w-0 bg-zinc-900 text-zinc-100 placeholder-zinc-500 text-sm rounded-xl px-4 py-2.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 resize-none max-h-36 overflow-y-auto leading-5"></textarea>
 
         <button type="submit" id="send-btn"
@@ -326,7 +326,7 @@
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
     const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
-    const CHUNK_CHAR_SIZE = 700000; // ~700 KB per Firestore chunk (well under 1 MiB limit)
+    const CHUNK_CHAR_SIZE = 700000; // ~700 KB per Firestore chunk
 
     const ADMIN_EMAILS = [
       "11530584@stu.tshs.tp.edu.tw",
@@ -493,9 +493,10 @@
     let replyingTo = null; // { id, uid, name, text }
     let unsubscribers = [];
     let heartbeatInterval = null;
+    let pollTickerInterval = null;
     let latestMessagesSnapshot = null;
     let isInitialChatLoad = true;
-    const reassembledBlobCache = new Map(); // groupId -> ObjectURL
+    const reassembledBlobCache = new Map();
 
     // Mutual Notes State
     let isNotesOpen = false;
@@ -511,6 +512,126 @@
     let acTriggerRange = null;
 
     // =========================================================
+    // /poll PARSER & LIVE COUNTDOWN HELPERS
+    // Format: /poll TIME(s, m, h, d) TITLE [contentA, contentB, ...]
+    // =========================================================
+    function parsePollCommand(rawText) {
+      if (!/^\/poll(?:\s|$)/i.test(rawText)) return null;
+
+      const match = rawText.match(/^\/poll\s+(\d+(?:\.\d+)?)\s*([smhd])\s+(.+?)\s*\[([^\]]+)\]\s*$/i);
+      if (!match) {
+        return {
+          error: "Format: /poll TIME(s, m, h, d) TITLE [optionA, optionB, ...]  (e.g. /poll 10m Lunch? [Ramen, Pizza])"
+        };
+      }
+
+      const amount = parseFloat(match[1]);
+      const unit = match[2].toLowerCase();
+      const title = match[3].trim();
+      const rawOptions = match[4]
+        .split(",")
+        .map((opt) => opt.trim())
+        .filter(Boolean);
+
+      if (!amount || amount <= 0) {
+        return { error: "Poll duration must be greater than 0." };
+      }
+
+      if (!title) {
+        return { error: "Please provide a poll title." };
+      }
+
+      if (rawOptions.length < 2) {
+        return { error: "Please provide at least 2 options inside [contentA, contentB, ...]." };
+      }
+
+      if (rawOptions.length > 10) {
+        return { error: "Maximum 10 options allowed per poll." };
+      }
+
+      const multipliers = {
+        s: 1000,
+        m: 60 * 1000,
+        h: 60 * 60 * 1000,
+        d: 24 * 60 * 60 * 1000
+      };
+
+      const durationMs = Math.round(amount * multipliers[unit]);
+      const endsAt = Date.now() + durationMs;
+
+      return {
+        title,
+        options: rawOptions,
+        endsAt,
+        durationLabel: `${match[1]}${unit}`
+      };
+    }
+
+    function formatPollTimeRemaining(endsAt) {
+      const diff = endsAt - Date.now();
+      if (diff <= 0) return "Poll Ended";
+      const totalSec = Math.ceil(diff / 1000);
+      const d = Math.floor(totalSec / 86400);
+      const h = Math.floor((totalSec % 86400) / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+
+      if (d > 0) return `${d}d ${h}h left`;
+      if (h > 0) return `${h}h ${m}m left`;
+      if (m > 0) return `${m}m ${s}s left`;
+      return `${s}s left`;
+    }
+
+    function refreshAllPollTimers() {
+      const timerEls = document.querySelectorAll("[data-poll-ends-at]");
+      timerEls.forEach((el) => {
+        const endsAt = Number(el.dataset.pollEndsAt);
+        const msgId = el.dataset.pollMsgId;
+        const isExpired = Date.now() >= endsAt;
+        el.textContent = formatPollTimeRemaining(endsAt);
+
+        if (isExpired && el.dataset.pollLocked !== "1") {
+          el.dataset.pollLocked = "1";
+          el.classList.remove("text-orange-300", "bg-orange-500/15", "border-orange-500/40");
+          el.classList.add("text-zinc-400", "bg-zinc-800/80", "border-zinc-700");
+          const optionBtns = document.querySelectorAll(`[data-poll-opt-msg="${msgId}"]`);
+          optionBtns.forEach((btn) => {
+            btn.disabled = true;
+            btn.classList.remove("cursor-pointer", "hover:border-orange-400");
+            btn.classList.add("cursor-default", "opacity-85");
+          });
+        }
+      });
+    }
+
+    async function handlePollVote(msgId, pollData, optionIndex) {
+      if (!currentUser || !pollData) return;
+      if (Date.now() >= pollData.endsAt) {
+        showCommandNotice("This poll has already ended.");
+        return;
+      }
+
+      const votes = { ...(pollData.votes || {}) };
+      const currentChoice = votes[currentUser.uid];
+
+      // Clicking the same option toggles vote off; clicking another switches vote
+      if (currentChoice === optionIndex) {
+        delete votes[currentUser.uid];
+      } else {
+        votes[currentUser.uid] = optionIndex;
+      }
+
+      try {
+        await updateDoc(doc(db, "messages", msgId), {
+          "poll.votes": votes
+        });
+      } catch (err) {
+        console.error("Vote failed:", err);
+        showCommandNotice("Could not submit vote.");
+      }
+    }
+
+    // =========================================================
     // FIRESTORE CHUNKED UPLOAD & DOWNLOAD (UP TO 10 MB FREE)
     // =========================================================
     function readFileAsDataURL(file) {
@@ -523,7 +644,6 @@
     }
 
     async function storeDataUrlInFirestore(dataUrl, onProgress) {
-      // Small enough to fit directly inside the message document
       if (dataUrl.length <= CHUNK_CHAR_SIZE) {
         return { inlineData: dataUrl, chunkGroupId: null, totalChunks: 0 };
       }
@@ -628,7 +748,9 @@
     // REPLY STATE HELPERS
     // =========================================================
     function startReplyTo(id, msg) {
-      const snippet = msg.text
+      const snippet = msg.poll
+        ? `[Poll: ${msg.poll.title}]`
+        : msg.text
         ? msg.text.slice(0, 80)
         : msg.image || msg.imageChunkGroupId
         ? "[Image]"
@@ -939,7 +1061,7 @@
       commandFeedback.classList.remove("hidden");
       setTimeout(() => {
         commandFeedback.classList.add("hidden");
-      }, 4500);
+      }, 5000);
     }
 
     closeCommandFeedback.addEventListener("click", () => {
@@ -1053,6 +1175,7 @@
       unsubscribers.forEach((fn) => fn());
       unsubscribers = [];
       if (heartbeatInterval) clearInterval(heartbeatInterval);
+      if (pollTickerInterval) clearInterval(pollTickerInterval);
 
       if (user) {
         currentUser = user;
@@ -1085,6 +1208,7 @@
         startSharedNotesListener();
         startChatListener();
         startPresence(user.uid);
+        pollTickerInterval = setInterval(refreshAllPollTimers, 1000);
       } else {
         currentUser = null;
         currentAvatarUrl = "";
@@ -1505,6 +1629,7 @@
     function renderMessage(id, msg, stickToBottom = true) {
       const isMe = currentUser && msg.uid === currentUser.uid;
       const isWhisper = Boolean(msg.isWhisper);
+      const isPoll = Boolean(msg.poll && Array.isArray(msg.poll.options));
       const isReply = Boolean(msg.replyTo && msg.replyTo.name);
 
       const myName = getActiveDisplayName().toLowerCase();
@@ -1553,7 +1678,9 @@
       nameBtn.title = `Click to mention @${msg.name}`;
       nameBtn.textContent = msg.name;
       nameBtn.className = `text-xs font-semibold hover:underline cursor-pointer ${
-        isWhisper
+        isPoll
+          ? "text-orange-400"
+          : isWhisper
           ? "text-purple-400"
           : isPinkReply
           ? "text-pink-400"
@@ -1622,7 +1749,7 @@
         actionsWrap.appendChild(muteBtn);
       }
 
-      // 3. Delete Button (also cleans up any file chunks)
+      // 3. Delete Button
       if (isMe || isAdmin) {
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -1649,7 +1776,10 @@
 
       // Bubble Styling
       const bubble = document.createElement("div");
-      if (isWhisper) {
+      if (isPoll) {
+        bubble.className =
+          "w-full max-w-[85%] sm:max-w-[75%] rounded-xl px-4 py-3 text-sm break-words bg-orange-950/85 text-orange-100 border border-orange-500/75 shadow-[0_0_18px_rgba(249,115,22,0.18)]";
+      } else if (isWhisper) {
         bubble.className =
           "max-w-[80%] sm:max-w-[70%] rounded-xl px-4 py-2.5 text-sm break-words bg-purple-950/90 text-purple-100 border border-purple-500/70 shadow-[0_0_15px_rgba(168,85,247,0.18)]";
       } else if (isPinkReply) {
@@ -1704,6 +1834,118 @@
         bubble.appendChild(quoteBox);
       }
 
+      // =========================================================
+      // ORANGE POLL BLOCK RENDERING
+      // =========================================================
+      if (isPoll) {
+        const poll = msg.poll;
+        const votesMap = poll.votes || {};
+        const isExpired = Date.now() >= poll.endsAt;
+        const myVoteIdx = currentUser ? votesMap[currentUser.uid] : undefined;
+
+        const counts = new Array(poll.options.length).fill(0);
+        let totalVotes = 0;
+        Object.values(votesMap).forEach((idx) => {
+          if (typeof idx === "number" && idx >= 0 && idx < counts.length) {
+            counts[idx]++;
+            totalVotes++;
+          }
+        });
+
+        // Top Bar: POLL badge + Countdown Timer
+        const pollHeader = document.createElement("div");
+        pollHeader.className = "flex items-center justify-between gap-2 mb-1.5";
+        pollHeader.innerHTML = `
+          <span class="text-[10px] font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <line x1="18" y1="20" x2="18" y2="10"></line>
+              <line x1="12" y1="20" x2="12" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="14"></line>
+            </svg>
+            Poll
+          </span>
+          <span data-poll-ends-at="${poll.endsAt}" data-poll-msg-id="${id}" data-poll-locked="${isExpired ? "1" : "0"}"
+            class="text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+              isExpired
+                ? "text-zinc-400 bg-zinc-800/80 border-zinc-700"
+                : "text-orange-300 bg-orange-500/15 border-orange-500/40"
+            }">
+            ${formatPollTimeRemaining(poll.endsAt)}
+          </span>
+        `;
+        bubble.appendChild(pollHeader);
+
+        // Poll Question / Title (Orange Text)
+        const pollTitle = document.createElement("div");
+        pollTitle.className = "text-base font-bold text-orange-200 mb-3 leading-snug";
+        pollTitle.textContent = poll.title;
+        bubble.appendChild(pollTitle);
+
+        // Options List
+        const optionsContainer = document.createElement("div");
+        optionsContainer.className = "space-y-2";
+
+        poll.options.forEach((optText, idx) => {
+          const count = counts[idx];
+          const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+          const isSelected = myVoteIdx === idx;
+
+          const optBtn = document.createElement("button");
+          optBtn.type = "button";
+          optBtn.disabled = isExpired;
+          optBtn.dataset.pollOptMsg = id;
+          optBtn.className = `relative w-full text-left overflow-hidden rounded-lg border px-3 py-2 transition ${
+            isSelected
+              ? "border-orange-400 bg-orange-900/55 text-orange-100"
+              : "border-orange-500/35 bg-black/35 text-orange-200"
+          } ${
+            isExpired
+              ? "cursor-default opacity-85"
+              : "cursor-pointer hover:border-orange-400"
+          }`;
+
+          // Progress Fill Bar
+          const fillBar = document.createElement("div");
+          fillBar.className = `absolute inset-y-0 left-0 transition-all duration-300 pointer-events-none ${
+            isSelected ? "bg-orange-500/35" : "bg-orange-500/15"
+          }`;
+          fillBar.style.width = `${pct}%`;
+          optBtn.appendChild(fillBar);
+
+          // Option Label & Vote Count
+          const rowContent = document.createElement("div");
+          rowContent.className = "relative z-10 flex items-center justify-between gap-2 text-xs";
+          rowContent.innerHTML = `
+            <span class="flex items-center gap-2 font-medium truncate">
+              <span class="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                isSelected ? "border-orange-300 bg-orange-500 text-black font-bold" : "border-orange-400/60"
+              }">
+                ${isSelected ? "✓" : ""}
+              </span>
+              <span class="truncate">${escapeHTML(optText)}</span>
+            </span>
+            <span class="shrink-0 font-semibold text-orange-300">
+              ${count} (${pct}%)
+            </span>
+          `;
+          optBtn.appendChild(rowContent);
+
+          optBtn.onclick = () => handlePollVote(id, poll, idx);
+          optionsContainer.appendChild(optBtn);
+        });
+
+        bubble.appendChild(optionsContainer);
+
+        // Poll Footer
+        const pollFooter = document.createElement("div");
+        pollFooter.className = "mt-2.5 flex items-center justify-between text-[11px] text-orange-300/80";
+        pollFooter.innerHTML = `
+          <span>${totalVotes} ${totalVotes === 1 ? "vote" : "votes"}</span>
+          <span>${isExpired ? "Voting closed" : "Click an option to vote"}</span>
+        `;
+        bubble.appendChild(pollFooter);
+      }
+
       // Image (inline or reassembled from Firestore chunks)
       if (msg.image || msg.imageChunkGroupId) {
         const img = document.createElement("img");
@@ -1742,14 +1984,14 @@
         const fileCard = document.createElement("button");
         fileCard.type = "button";
         fileCard.className = `w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg mb-1.5 border transition cursor-pointer ${
-          isMe && !isWhisper && !isPinkReply
+          isMe && !isWhisper && !isPinkReply && !isPoll
             ? "bg-black/15 border-black/25 text-black hover:bg-black/25"
             : "bg-zinc-950/80 border-zinc-700 text-zinc-100 hover:border-yellow-500"
         }`;
 
         const statusLabelId = `file_status_${id}`;
         fileCard.innerHTML = `
-          <svg class="w-4 h-4 shrink-0 ${isMe && !isWhisper && !isPinkReply ? "text-black" : "text-yellow-500"}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 shrink-0 ${isMe && !isWhisper && !isPinkReply && !isPoll ? "text-black" : "text-yellow-500"}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
@@ -1783,7 +2025,7 @@
         bubble.appendChild(fileCard);
       }
 
-      if (msg.text) {
+      if (!isPoll && msg.text) {
         const p = document.createElement("p");
         p.className = "whitespace-pre-wrap";
         p.innerHTML = formatMessageHTML(msg.text, isMe, isWhisper, isPinkReply);
@@ -1845,7 +2087,17 @@
       const rawText = messageInput.value.trim();
       if (!rawText && !pendingImageFile && !pendingFileAttachment) return;
 
-      const whisper = parseWhisperCommand(rawText);
+      // Check /poll command
+      const pollParsed = parsePollCommand(rawText);
+      if (pollParsed) {
+        if (pollParsed.error) {
+          showCommandNotice(pollParsed.error);
+          return;
+        }
+      }
+
+      // Check /msg whisper command
+      const whisper = !pollParsed ? parseWhisperCommand(rawText) : null;
       if (whisper) {
         if (whisper.error) {
           showCommandNotice(whisper.error);
@@ -1893,36 +2145,59 @@
           };
         }
 
-        const payload = whisper
-          ? {
-              uid: currentUser.uid,
-              email: currentUser.email || "",
-              name: getActiveDisplayName(),
-              avatar: currentAvatarUrl || null,
-              text: whisper.whisperText,
-              image: inlineImage,
-              imageChunkGroupId,
-              imageMime,
-              file: filePayload,
-              replyTo: replyingTo ? { ...replyingTo } : null,
-              isWhisper: true,
-              whisperToUid: whisper.targetUid || null,
-              whisperToName: whisper.targetName,
-              createdAt: serverTimestamp()
-            }
-          : {
-              uid: currentUser.uid,
-              email: currentUser.email || "",
-              name: getActiveDisplayName(),
-              avatar: currentAvatarUrl || null,
-              text: rawText,
-              image: inlineImage,
-              imageChunkGroupId,
-              imageMime,
-              file: filePayload,
-              replyTo: replyingTo ? { ...replyingTo } : null,
-              createdAt: serverTimestamp()
-            };
+        let payload;
+        if (pollParsed) {
+          payload = {
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            name: getActiveDisplayName(),
+            avatar: currentAvatarUrl || null,
+            text: "",
+            image: inlineImage,
+            imageChunkGroupId,
+            imageMime,
+            file: filePayload,
+            replyTo: replyingTo ? { ...replyingTo } : null,
+            poll: {
+              title: pollParsed.title,
+              options: pollParsed.options,
+              endsAt: pollParsed.endsAt,
+              votes: {}
+            },
+            createdAt: serverTimestamp()
+          };
+        } else if (whisper) {
+          payload = {
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            name: getActiveDisplayName(),
+            avatar: currentAvatarUrl || null,
+            text: whisper.whisperText,
+            image: inlineImage,
+            imageChunkGroupId,
+            imageMime,
+            file: filePayload,
+            replyTo: replyingTo ? { ...replyingTo } : null,
+            isWhisper: true,
+            whisperToUid: whisper.targetUid || null,
+            whisperToName: whisper.targetName,
+            createdAt: serverTimestamp()
+          };
+        } else {
+          payload = {
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            name: getActiveDisplayName(),
+            avatar: currentAvatarUrl || null,
+            text: rawText,
+            image: inlineImage,
+            imageChunkGroupId,
+            imageMime,
+            file: filePayload,
+            replyTo: replyingTo ? { ...replyingTo } : null,
+            createdAt: serverTimestamp()
+          };
+        }
 
         messageInput.value = "";
         autoResizeMessageInput();
@@ -1936,7 +2211,7 @@
         scrollToBottom(true);
       } catch (err) {
         console.error("Send/upload failed:", err);
-        showCommandNotice("Upload failed. Make sure /fileChunks is allowed in Firestore Rules.");
+        showCommandNotice("Send failed. Check your connection or Firestore Rules.");
       } finally {
         isUploading = false;
         sendBtn.disabled = false;
