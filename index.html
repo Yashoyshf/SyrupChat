@@ -162,7 +162,7 @@
             </div>
           </button>
 
-          <input id="display-name-input" type="text" maxlength="50" title="Your display name (click to edit, max 50 chars)"
+          <input id="display-name-input" type="text" maxlength="50" title="Your display name (click to edit, saved permanently)"
             placeholder="Your name"
             class="w-32 sm:w-44 bg-zinc-900 text-yellow-500 font-medium text-sm rounded-xl px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-yellow-600 transition" />
 
@@ -306,7 +306,8 @@
       GoogleAuthProvider,
       signInWithPopup,
       signOut,
-      onAuthStateChanged
+      onAuthStateChanged,
+      updateProfile
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
     import {
       getFirestore,
@@ -314,6 +315,7 @@
       addDoc,
       deleteDoc,
       doc,
+      getDoc,
       setDoc,
       updateDoc,
       getDocs,
@@ -484,13 +486,14 @@
 
     let currentUser = null;
     let currentAvatarUrl = "";
+    let hasCustomName = false;
     let isAdmin = false;
     let isRoomLocked = false;
     let mutedUsersMap = {};
-    let pendingImageFile = null;      // { file, previewUrl }
-    let pendingFileAttachment = null; // { file, name, size, type }
+    let pendingImageFile = null;
+    let pendingFileAttachment = null;
     let isUploading = false;
-    let replyingTo = null; // { id, uid, name, text }
+    let replyingTo = null;
     let unsubscribers = [];
     let heartbeatInterval = null;
     let pollTickerInterval = null;
@@ -513,7 +516,6 @@
 
     // =========================================================
     // /poll PARSER & LIVE COUNTDOWN HELPERS
-    // Format: /poll TIME(s, m, h, d) TITLE [contentA, contentB, ...]
     // =========================================================
     function parsePollCommand(rawText) {
       if (!/^\/poll(?:\s|$)/i.test(rawText)) return null;
@@ -614,7 +616,6 @@
       const votes = { ...(pollData.votes || {}) };
       const currentChoice = votes[currentUser.uid];
 
-      // Clicking the same option toggles vote off; clicking another switches vote
       if (currentChoice === optionIndex) {
         delete votes[currentUser.uid];
       } else {
@@ -1054,7 +1055,7 @@
     }
 
     // =========================================================
-    // CORE HELPERS & AUTH
+    // CORE HELPERS & PERMANENT PROFILE PERSISTENCE
     // =========================================================
     function showCommandNotice(msg) {
       commandFeedbackText.textContent = msg;
@@ -1095,6 +1096,37 @@
       }
     }
 
+    // Save profile name & avatar permanently in Firestore + localStorage + Firebase Auth
+    async function saveUserProfile(nameToSave, avatarToSave, markCustomName = true) {
+      if (!currentUser) return;
+      const cleanName = nameToSave.trim().slice(0, 50);
+      if (!cleanName) return;
+
+      if (markCustomName) hasCustomName = true;
+      localStorage.setItem(`chat_name_${currentUser.uid}`, cleanName);
+      if (avatarToSave) {
+        localStorage.setItem(`chat_avatar_${currentUser.uid}`, avatarToSave);
+      }
+
+      try {
+        await setDoc(
+          doc(db, "presence", currentUser.uid),
+          {
+            name: cleanName,
+            customName: hasCustomName,
+            avatar: avatarToSave || "",
+            lastSeen: Date.now()
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error("Failed to save profile to Firestore:", err);
+      }
+
+      // Also sync displayName on the Firebase Auth user object
+      updateProfile(currentUser, { displayName: cleanName }).catch(() => {});
+    }
+
     avatarUploadBtn.addEventListener("click", () => avatarInput.click());
     avatarInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -1103,7 +1135,7 @@
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
           const canvas = document.createElement("canvas");
           const SIZE = 128;
           canvas.width = SIZE;
@@ -1117,14 +1149,8 @@
 
           const base64Avatar = canvas.toDataURL("image/png");
           currentAvatarUrl = base64Avatar;
-          localStorage.setItem(`chat_avatar_${currentUser.uid}`, base64Avatar);
           updateHeaderAvatarUI();
-
-          setDoc(
-            doc(db, "presence", currentUser.uid),
-            { name: getActiveDisplayName(), avatar: base64Avatar, lastSeen: Date.now() },
-            { merge: true }
-          );
+          await saveUserProfile(getActiveDisplayName(), base64Avatar, hasCustomName);
         };
         img.src = event.target.result;
       };
@@ -1132,18 +1158,13 @@
       avatarInput.value = "";
     });
 
-    displayNameInput.addEventListener("change", () => {
+    displayNameInput.addEventListener("change", async () => {
       if (!currentUser) return;
       const fallback = (currentUser.displayName || currentUser.email.split("@")[0]).slice(0, 50);
       const cleanName = (displayNameInput.value.trim() || fallback).slice(0, 50);
       displayNameInput.value = cleanName;
-      localStorage.setItem(`chat_name_${currentUser.uid}`, cleanName);
       updateHeaderAvatarUI();
-      setDoc(
-        doc(db, "presence", currentUser.uid),
-        { name: cleanName, avatar: currentAvatarUrl, lastSeen: Date.now() },
-        { merge: true }
-      );
+      await saveUserProfile(cleanName, currentAvatarUrl, true);
       if (latestMessagesSnapshot) renderAllMessages(latestMessagesSnapshot);
     });
 
@@ -1164,14 +1185,19 @@
       }
     });
 
+    // Keep presence/{uid} document on sign-out (only mark offline) so saved custom name & avatar never get deleted
     logoutBtn.addEventListener("click", async () => {
       if (currentUser) {
-        await deleteDoc(doc(db, "presence", currentUser.uid)).catch(() => {});
+        await setDoc(
+          doc(db, "presence", currentUser.uid),
+          { lastSeen: 0 },
+          { merge: true }
+        ).catch(() => {});
       }
       await signOut(auth);
     });
 
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
       unsubscribers.forEach((fn) => fn());
       unsubscribers = [];
       if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -1182,13 +1208,35 @@
         isInitialChatLoad = true;
         isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
 
-        const googleName = (user.displayName || user.email.split("@")[0]).slice(0, 50);
-        const savedName = localStorage.getItem(`chat_name_${user.uid}`);
-        displayNameInput.value = (savedName || googleName).slice(0, 50);
+        const googleFallbackName = (user.displayName || user.email.split("@")[0]).slice(0, 50);
+        const localSavedName = localStorage.getItem(`chat_name_${user.uid}`);
+        const localSavedAvatar = localStorage.getItem(`chat_avatar_${user.uid}`);
 
-        const savedAvatar = localStorage.getItem(`chat_avatar_${user.uid}`);
-        currentAvatarUrl = savedAvatar || user.photoURL || "";
+        // Set immediate local/Google fallback before Firestore check finishes
+        hasCustomName = Boolean(localSavedName);
+        displayNameInput.value = (localSavedName || googleFallbackName).slice(0, 50);
+        currentAvatarUrl = localSavedAvatar || user.photoURL || "";
         updateHeaderAvatarUI();
+
+        // Load permanently saved name & avatar from Firestore presence/{uid}
+        try {
+          const userSnap = await getDoc(doc(db, "presence", user.uid));
+          if (userSnap.exists()) {
+            const profileData = userSnap.data();
+            if (profileData.name && (profileData.customName || !localSavedName)) {
+              hasCustomName = Boolean(profileData.customName || profileData.name !== googleFallbackName);
+              displayNameInput.value = profileData.name.slice(0, 50);
+              localStorage.setItem(`chat_name_${user.uid}`, displayNameInput.value);
+            }
+            if (profileData.avatar) {
+              currentAvatarUrl = profileData.avatar;
+              localStorage.setItem(`chat_avatar_${user.uid}`, profileData.avatar);
+            }
+            updateHeaderAvatarUI();
+          }
+        } catch (err) {
+          console.error("Failed to fetch saved user profile:", err);
+        }
 
         setNotesOpen(false);
 
@@ -1212,6 +1260,7 @@
       } else {
         currentUser = null;
         currentAvatarUrl = "";
+        hasCustomName = false;
         isAdmin = false;
         loginScreen.classList.remove("hidden");
         workspaceWrapper.classList.add("hidden");
@@ -1534,7 +1583,12 @@
       const ping = () =>
         setDoc(
           userRef,
-          { name: getActiveDisplayName(), avatar: currentAvatarUrl, lastSeen: Date.now() },
+          {
+            name: getActiveDisplayName(),
+            customName: hasCustomName,
+            avatar: currentAvatarUrl,
+            lastSeen: Date.now()
+          },
           { merge: true }
         );
       ping();
@@ -1852,7 +1906,6 @@
           }
         });
 
-        // Top Bar: POLL badge + Countdown Timer
         const pollHeader = document.createElement("div");
         pollHeader.className = "flex items-center justify-between gap-2 mb-1.5";
         pollHeader.innerHTML = `
@@ -1875,13 +1928,11 @@
         `;
         bubble.appendChild(pollHeader);
 
-        // Poll Question / Title (Orange Text)
         const pollTitle = document.createElement("div");
         pollTitle.className = "text-base font-bold text-orange-200 mb-3 leading-snug";
         pollTitle.textContent = poll.title;
         bubble.appendChild(pollTitle);
 
-        // Options List
         const optionsContainer = document.createElement("div");
         optionsContainer.className = "space-y-2";
 
@@ -1904,7 +1955,6 @@
               : "cursor-pointer hover:border-orange-400"
           }`;
 
-          // Progress Fill Bar
           const fillBar = document.createElement("div");
           fillBar.className = `absolute inset-y-0 left-0 transition-all duration-300 pointer-events-none ${
             isSelected ? "bg-orange-500/35" : "bg-orange-500/15"
@@ -1912,7 +1962,6 @@
           fillBar.style.width = `${pct}%`;
           optBtn.appendChild(fillBar);
 
-          // Option Label & Vote Count
           const rowContent = document.createElement("div");
           rowContent.className = "relative z-10 flex items-center justify-between gap-2 text-xs";
           rowContent.innerHTML = `
@@ -1936,7 +1985,6 @@
 
         bubble.appendChild(optionsContainer);
 
-        // Poll Footer
         const pollFooter = document.createElement("div");
         pollFooter.className = "mt-2.5 flex items-center justify-between text-[11px] text-orange-300/80";
         pollFooter.innerHTML = `
@@ -2087,7 +2135,6 @@
       const rawText = messageInput.value.trim();
       if (!rawText && !pendingImageFile && !pendingFileAttachment) return;
 
-      // Check /poll command
       const pollParsed = parsePollCommand(rawText);
       if (pollParsed) {
         if (pollParsed.error) {
@@ -2096,7 +2143,6 @@
         }
       }
 
-      // Check /msg whisper command
       const whisper = !pollParsed ? parseWhisperCommand(rawText) : null;
       if (whisper) {
         if (whisper.error) {
